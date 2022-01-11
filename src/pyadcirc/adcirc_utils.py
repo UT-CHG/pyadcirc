@@ -1,3 +1,27 @@
+"""
+
+adcirc_utils - A bunch of adcirc python functions. 
+
+Note:
+    This skeleton file can be safely removed if not needed!
+
+References:
+    - https://setuptools.readthedocs.io/en/latest/userguide/entry_point.html
+    - https://pip.pypa.io/en/stable/reference/pip_install
+"""
+
+import argparse
+import logging
+import sys
+
+from pyadcirc import __version__
+
+__author__ = "Carlos del-Castillo-Negrete"
+__copyright__ = "Carlos del-Castillo-Negrete"
+__license__ = "MIT"
+_logger = logging.getLogger(__name__)
+
+
 import re
 import os
 import pdb
@@ -705,6 +729,8 @@ def read_owi_met(path, vals=['v1'], times=[0]):
   attrs['start_ts'] = pd.to_datetime(line[55:66].strip(), format="%Y%m%d%H")
   attrs['end_ts'] = pd.to_datetime(line[70:80].strip(), format="%Y%m%d%H")
 
+  # TODO: Make sure times is sorted in increasing order, all positive values
+
   if len(lc.getline(path,2))>79:
     tf = "%Y%m%d%H%M%S"
     ti_idx = 67
@@ -712,64 +738,90 @@ def read_owi_met(path, vals=['v1'], times=[0]):
     tf = "%Y%m%d%H"
     ti_idx = 68
 
+
+  i= 0              # Current idx in metereological data
+  time_idx = 0      # Index in time array (array of indices we want)
   cur_line = 2
   all_data = []
   line = lc.getline(path, cur_line)
-  for t in times:
+  while i<1+times[-1]:
     if line=='':
       break
-    # Grid Spec Line:
-    # 11 format (t6,i4,t16,i4,t23,f6.0,t32,f6.0,t44,f8.0,t58,f8.0,t69,i10,i2)
-    # read (20,11) iLat, iLong, dx, dy, swlat, swlong, lCYMDH, iMin
-    grid_spec = re.sub("[^\-0-9=.]", "", line)[1:].split("=")
-    ilat  = int(grid_spec[0])
-    ilon  = int(grid_spec[1])
-    dx    = float(grid_spec[2])
-    dy    = float(grid_spec[3])
-    swlat = float(grid_spec[4])
-    swlon = float(grid_spec[5])
-    ts = pd.to_datetime(grid_spec[6], format=tf)
+    try:
+      if times[time_idx]==i:
+        # Grid Spec Line:
+        # 11 format (t6,i4,t16,i4,t23,f6.0,t32,f6.0,t44,f8.0,t58,f8.0,t69,i10,i2)
+        # read (20,11) iLat, iLong, dx, dy, swlat, swlong, lCYMDH, iMin
+        grid_spec = re.sub("[^\-0-9=.]", "", line)[1:].split("=")
+        ilat  = int(grid_spec[0])
+        ilon  = int(grid_spec[1])
+        dx    = float(grid_spec[2])
+        dy    = float(grid_spec[3])
+        swlat = float(grid_spec[4])
+        swlon = float(grid_spec[5])
+        ts = pd.to_datetime(grid_spec[6], format=tf)
 
-    # swlon = float(line[57:65])
-    # ts = pd.to_datetime(line[68:len(line)-1], format=tf)
+        # swlon = float(line[57:65])
+        # ts = pd.to_datetime(line[68:len(line)-1], format=tf)
 
-    logger.info(f"Processing data at {ts}")
+        logger.info(f"Processing data at {ts}")
 
-    data = {}
-    line_count = int(ilat*ilon/8.0)
-    remainder = int(ilat*ilon - (line_count*8))
-    for v in vals:
-      vs = np.zeros(ilat*ilon)
+        data = {}
+        line_count = int(ilat*ilon/8.0)
+        remainder = int(ilat*ilon - (line_count*8))
+        for v in vals:
+          vs = np.zeros(ilat*ilon)
 
-      with open(path, 'r') as f:
-        vs[0:(8*line_count)] = pd.read_fwf(f, nrows=line_count, skiprows=cur_line,
-            widths=8*[10], header=None).values.flatten()
-      if remainder>0:
-        with open(path, 'r') as f:
-          vs[(8*line_count):] = pd.read_fwf(f, nrows=1, skiprows=cur_line+line_count,
-              widths=remainder*[10], header=None).values.flatten()
-        cur_line = cur_line+line_count+1
+          with open(path, 'r') as f:
+            vs[0:(8*line_count)] = pd.read_fwf(f, nrows=line_count, skiprows=cur_line,
+                widths=8*[10], header=None).values.flatten()
+          if remainder>0:
+            with open(path, 'r') as f:
+              vs[(8*line_count):] = pd.read_fwf(f, nrows=1, skiprows=cur_line+line_count,
+                  widths=remainder*[10], header=None).values.flatten()
+            cur_line = cur_line+line_count+1
+          else:
+            cur_line = cur_line+line_count
+
+
+          vs = vs.reshape(1, ilat, ilon)
+          data[v] = (["time", "latitude", "longitude"], vs)
+
+        # Convert swlon to positive longitude value
+        if swlon<0:
+          swlon = 360 + swlon
+        lon = np.arange(start=swlon, stop=(swlon+(ilon*dx)), step=dx)
+        # lon = np.where(lon<180.0,lon,lon-360)
+
+        coords = {"time": [ts],
+                  "longitude": lon,
+                  "latitude": np.arange(start=swlat, stop=(swlat+(ilat*dy)), step=dy)}
+        all_data.append(xr.Dataset(data, coords=coords))
+
+        # Only increment index in time array if it matches current index of data
+        time_idx = time_idx+1
       else:
-        cur_line = cur_line+line_count
+        grid_spec = re.sub("[^\-0-9=.]", "", line)[1:].split("=")
+        ilat  = int(grid_spec[0])
+        ilon  = int(grid_spec[1])
+        ts = pd.to_datetime(grid_spec[6], format=tf)
+        line_count = int(ilat*ilon/8.0)
+        remainder = int(ilat*ilon - (line_count*8))
 
+        logger.info(f"Skiping data at {ts}")
+        for v in vals:
+          if remainder>0:
+            cur_line = cur_line+line_count+1
+          else:
+            cur_line = cur_line+line_count
 
-      vs = vs.reshape(1, ilat, ilon)
-      data[v] = (["time", "latitude", "longitude"], vs)
-
-    # Convert swlon to positive longitude value
-    if swlon<0:
-      swlon = 360 + swlon
-    lon = np.arange(start=swlon, stop=(swlon+(ilon*dx)), step=dx)
-    # lon = np.where(lon<180.0,lon,lon-360)
-
-    coords = {"time": [ts],
-              "longitude": lon,
-              "latitude": np.arange(start=swlat, stop=(swlat+(ilat*dy)), step=dy)}
-    all_data.append(xr.Dataset(data, coords=coords))
-
-    # Get next line corresponding to next datapoint, or empty if done
-    cur_line += 1
-    line = lc.getline(path, cur_line)
+      # Get next line corresponding to next datapoint, or empty if done
+      i += 1
+      cur_line += 1
+      line = lc.getline(path, cur_line)
+    except Exception as e:
+      pdb.set_trace()
+      print("here")
 
   if len(all_data)>0:
     ret_ds =  xr.concat(all_data, "time")
@@ -1045,7 +1097,9 @@ def create_nodal_att(name, units, default_vals, nodal_vals):
     str_vals = [f"v{str(x)}" for x in range(len(default_vals))]
     base_df = pd.DataFrame([[name, units, len(default_vals)] + list(default_vals)],
                            columns=['AttrName', 'Units', 'ValuesPerNode'] + str_vals).set_index('AttrName').to_xarray()
-    default_vals = pd.DataFrame([], columns=['JN'] + ['_'.join([name, str(x)]) for x in range(len(default_vals))]).set_index('JN').to_xarray()
+
+    default_vals = pd.DataFrame(nodal_vals,
+        columns=['JN'] + ['_'.join([name, str(x)]) for x in range(len(default_vals))]).set_index('JN').to_xarray()
 
     return xr.merge([base_df, default_vals])
 
@@ -1138,8 +1192,137 @@ def process_adcirc_configs(path, filt='fort.*', met_times=[]):
 P_CONFIGS =  pull_param_configs()
 
 
-if __name__ == '__main__':
-  logging.basicConfig(level=logging.DEBUG)
+# ---- Python API ----
+# The functions defined in this section can be imported by users in their
+# Python scripts/interactive interpreter, e.g. via
+# `from pyadcirc.skeleton import fib`,
+# when using this Python module as a library.
 
 
+def adcirc_to_xarray(path, filt='fort*', met_times=[0], out_path='./adc.nc'):
+    """Convert adcric inputs (fort.*) to xarray netcdf file
 
+    Args:
+      path (int): Path to folder containing adcirc files
+      filt (str): String to filter files to process on, defaults to 'fort.*'
+      met_times (str): CSL list of time idices to pull meterological data at. n
+      out_path (str): Output file path
+
+    Returns:
+      xarray: n-th Fibonacci number
+    """
+
+    res = adcirc_to_xarray(path, filt='fort.*', met_times=[])
+    res.to_netcdf(out_path)
+
+    return res
+
+
+# ---- CLI ----
+# The functions defined in this section are wrappers around the main Python
+# API allowing them to be called directly from the terminal as a CLI
+# executable/script.
+
+
+def parse_args(args):
+    """Parse command line parameters
+
+    Args:
+      args (List[str]): command line parameters as list of strings
+          (for example  ``["--help"]``).
+
+    Returns:
+      :obj:`argparse.Namespace`: command line parameters namespace
+    """
+    parser = argparse.ArgumentParser(description="Process ADCIRC Configs")
+    parser.add_argument(
+        "--version",
+        action="version",
+        version="pyadcirc {ver}".format(ver=__version__),
+    )
+    parser.add_argument(dest="path", help="Path to ADCIRC files", type=str, metavar="STR")
+    parser.add_argument(
+        "-f",
+        "--filter",
+        dest="filt",
+        help="String filter for adcirc files to process.",
+        default="fort.*"
+    )
+    parser.add_argument(
+        "-m",
+        "--met_idxs",
+        dest="met_idxs",
+        help="Indices to pull meterological data for",
+        default="0"
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        dest="loglevel",
+        help="set loglevel to INFO",
+        action="store_const",
+        const=logging.INFO,
+    )
+    parser.add_argument(
+        "-vv",
+        "--very-verbose",
+        dest="loglevel",
+        help="set loglevel to DEBUG",
+        action="store_const",
+        const=logging.DEBUG,
+    )
+    return parser.parse_args(args)
+
+
+def setup_logging(loglevel):
+    """Setup basic logging
+
+    Args:
+      loglevel (int): minimum loglevel for emitting messages
+    """
+    logformat = "[%(asctime)s] %(levelname)s:%(name)s:%(message)s"
+    logging.basicConfig(
+        level=loglevel, stream=sys.stdout, format=logformat, datefmt="%Y-%m-%d %H:%M:%S"
+    )
+
+
+def main(args):
+    """Wrapper allowing :func:`fib` to be called with string arguments in a CLI fashion
+
+    Instead of returning the value from :func:`fib`, it prints the result to the
+    ``stdout`` in a nicely formated message.
+
+    Args:
+      args (List[str]): command line parameters as list of strings
+          (for example  ``["--verbose", "42"]``).
+    """
+    args = parse_args(args)
+    setup_logging(args.loglevel)
+    _logger.debug("Processing adcirc configs")
+
+    res = adcirc_to_xarray(args.path, filt=args.filt, met_idxs=args.met_idxs)
+    pdb.set_trace()
+    print("Done Processing ADCIRC Configs")
+    _logger.info("Script ends here")
+
+
+def run():
+    """Calls :func:`main` passing the CLI arguments extracted from :obj:`sys.argv`
+
+    This function can be used as entry point to create console scripts with setuptools.
+    """
+    main(sys.argv[1:])
+
+
+if __name__ == "__main__":
+    # ^  This is a guard statement that will prevent the following code from
+    #    being executed in the case someone imports this file instead of
+    #    executing it as a script.
+    #    https://docs.python.org/3/library/__main__.html
+
+    # After installing your project with pip, users can also run your Python
+    # modules as scripts via the ``-m`` flag, as defined in PEP 338::
+    #
+    #     python -m pyadcirc.skeleton 42
+    #
+    run()

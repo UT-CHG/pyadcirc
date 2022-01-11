@@ -1,0 +1,16 @@
+{
+  "name": "test-->designsafe.community.exec.stampede",
+  "appId": "padcirc-s2-55.00",
+  "maxRunTime": "00:20:00",
+  "nodeCount": 1,
+  "processorsPerNode": 12,
+  "archive": true,
+  "archiveSystem":"designsafe.storage.default",
+  "archivePath":"archive/adcirc-test/${JOB_ID}",
+  "inputs": {
+    "inputDirectory":"agave://designsafe.storage.default/ds_apps/applications/adcirc/padcirc_s2/test/inputs"
+  },
+  "parameters": {
+    "writeProcesses":2
+  }
+}
