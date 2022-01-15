@@ -24,7 +24,11 @@ if [ "$DEBUG" = true ] ; then
   set -x
   log DEBUG "Setting debug"
 fi
+ 
+# If running through tapis - callback function to alert job has started
+${AGAVE_JOB_CALLBACK_RUNNNG}
 
+# Load necessary modules - Netcdf for adcrc
 module load netcdf
 
 # Move inputs to current (job) directory
@@ -52,6 +56,10 @@ ibrun -np $CORES ./padcirc -W $WRITE_PROC >> output.eo.txt 2>&1
 
 if [ ! $? ]; then
 	log ERROR "ADCIRC exited with an error status. $?" 
+
+	# Callback for job failure if running through tapis
+	${AGAVE_JOB_CALLBACK_FAILURE}
+
 	exit
 fi
 

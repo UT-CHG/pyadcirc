@@ -9,16 +9,14 @@ class ADCIRCSimManager(object):
     """Docstring for ADCIRCSim. """
 
     def __init__(self,
-            cid:str=None
-            system:str=None,
+            jm_id:str=None,
+            exec_system:str=None,
             user:str=None):
         """TODO: to be defined. """
 
-        if cid not in tjm.list_conns():
-            conn = tjm.init_conn(cid, system, user)
+        if jm_id not in tjm.list_jms():
+            self.jm =  tjm.init_jm(cid, system, user)
+        else :
+            self.jm = tjm.get_jm(jm_id)
 
-
-    def deploy_configs(
-
-            ):
 

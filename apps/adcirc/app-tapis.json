@@ -1,0 +1,88 @@
+{
+  "defaultMemoryPerNode": 1,
+  "owner": "clos21",
+  "shortDescription": "Parallel ADCIRC is a computer program for solving systems of shallow water equations.",
+  "parameters": [
+    {
+      "id": "writeProcesses",
+      "value": {
+        "visible": true,
+        "required": false,
+        "type": "number",
+        "order": 0,
+        "default": 1
+      },
+      "details": {
+        "label": "ADCIRC Write Processes",
+        "description": "Number of processes to dedicate to writing output data."
+      },
+      "semantics": {
+        "minCardinality": 1,
+        "maxCardinality": 1,
+        "ontology": []
+      }
+    }
+  ],
+  "defaultQueue": "skx-normal",
+  "defaultNodeCount": 1,
+  "label": "PADCIRC (Stampede2)",
+  "defaultProcessorsPerNode": 30,
+  "version": "55.00",
+  "templatePath": "wrapper.sh",
+  "defaultMaxRunTime": "10:00:00",
+  "inputs": [
+    {
+      "semantics": {
+        "fileTypes": [
+          "raw-0"
+        ],
+        "minCardinality": 1,
+        "ontology": [
+          "xsd:string"
+        ],
+        "maxCardinality": 1
+      },
+      "id": "inputDirectory",
+      "value": {
+        "default": "agave://designsafe.storage.community//app_examples/adcirc/EC2001",
+        "required": true,
+        "enquote": false,
+        "visible": true,
+        "validator": "",
+        "order": 0
+      },
+      "details": {
+        "argument": null,
+        "repeatArgument": false,
+        "description": "The directory containing your ADCIRC input files. Note the executables adcprep and padcirc must be also in this directory, compiled to run on Stampede2 with just the netcdf module loaded.",
+        "showArgument": false,
+        "label": "Input Directory"
+      }
+    }
+  ],
+  "tags": [
+    "DesignSafe",
+    "netcdf",
+    "hdf5",
+    "hazards"
+  ],
+  "outputs": [],
+  "isPublic": false,
+  "longDescription": "PADCIRC is the parallel version of the ADCIRC which is optimized for enhanced performance on multiple computer nodes to run very large models. It includes MPI library calls to allow it to operate at high efficiency on parallel machines. This version of PADCIRC runs on up to 12 KNL Nodes on Stampede2, with 64 cores per Node.",
+  "executionSystem": "designsafe.community.exec.stampede2.nores",
+  "testPath": "test/test.sh",
+  "ontology": [],
+  "deploymentPath": "/applications/padcirc-s2-555.zip",
+  "icon": null,
+  "deploymentSystem": "designsafe.storage.default",
+  "name": "padcirc-s2",
+  "checkpointable": false,
+  "modules": [
+    "netcdf"
+  ],
+  "executionType": "HPC",
+  "parallelism": "PARALLEL",
+  "helpURI": "",
+  "appIcon": "ADCIRC",
+  "appCategory": "Simulation"
+}
