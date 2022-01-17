@@ -1,0 +1,90 @@
+    __________________  ______  ___________________   __
+   / ____/  _/ ____/ / / / __ \/ ____/ ____/ ____/ | / /
+  / /_   / // / __/ / / / /_/ / __/ / / __/ __/ /  |/ / 
+ / __/ _/ // /_/ / /_/ / _, _/ /___/ /_/ / /___/ /|  /  
+/_/   /___/\____/\____/_/ |_/_____/\____/_____/_/ |_/   
+
+# Basic input
+ 'output_filename': 'Harvey_maxele.',
+ 'output_format': 'JPG',
+ 'f14_file': 'fort.14',
+
+ 'east_bound': -94.5,
+ 'west_bound': -98.0}
+ 'north_bound': 29.5,
+ 'south_bound': 25.0,
+
+# DATA - select all that apply
+'plot_grid': True,
+'contours': {
+        'file': 'maxele.63.nc',
+        'format': 'ADCIRC-OUTPUT',
+	'color_lines': 'DEFAULT',
+
+        'range': '0,4',
+        'interval': 0.25,
+        'conversion_factor': 1.0,
+        'interval_split': 100,
+
+        'fill': 1,
+
+	lines?
+        'lines': 1,
+
+		if lines==1: labels?
+		'label_interval': 1,
+		'label_fonts_size': 8,
+		'label_angle': '0',
+		'label_spacing': 0.5,
+
+        'pallete': 'SMS',
+        'pallete_file': 'Default2.pal',
+
+         'scale_label_interval': 1.0,
+         'scale_width': 0.25,
+         'unit_label': 'm'},
+'particles': {'appearance': (1, 0, 'Brown'),
+               'file': 'pth.201006290000.nc',
+               'plot_flag': 0},
+'vectors': {'file': 'Katrina_fort.74',
+             'format': 'ADCIRC-OUTPUT',
+             'head_dims': (0.06, 0.04, 0.01),
+             'mag': 180.0,
+             'plot_flag': False,
+             'scale_mag': 'FIND',
+             'spacing': 0.15,
+             'unit_conversion_factor': 1.0,
+             'units': 'm/s'},
+
+If plotting data from contours/particles/vectors that may include 
+data at different timesteps/
+ 'num_records': 0,
+ 'records_list': 0,
+
+# General plot options
+ 'title': '0,Hurricane Harvey',
+ 'labels': (0, 'labels.txt'),
+ 'background_image': (0, 'Clint1.txt'),
+ 'logo': (0, 'TL', 2.0, 'CHG.eps'),
+ 'boundaries': (0, 'Brown'),
+ 'coastline': (0, 'White', 4, 4),
+ 'georef': (0, 0),
+ 'track': (0, 'Black', 'caseysIketrack.txt'),
+ 'kmx_opts': (0, 75, 2, '20050828120000'),
+
+# Specific image properties
+ 'dpi_res': 300,
+ 'image_trim': True,
+ 'time_bar': True,
+ 'plot_spacing': 0.25,
+ 'plot_width': 8.0,
+ 'border_annotation_spacing': 0.5,
+ 'border_box_spacing': 0.25,
+
+                                                        
+
+ 'gmt_path': '',
+ 'gs_path': '',
+ 'verbosity': 4,
+ 'temp_path': 'Temp/',
+

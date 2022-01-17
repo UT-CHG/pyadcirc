@@ -64,7 +64,7 @@ FG_config = [
     'type':str, 'default':'RGB'},
   {'index':24,'name':'pallete_file','desc':'Name of SMS color palette.',
     'type':str, 'default':None},
-  {'index':25,'name':'file-format',
+  {'index':25,'name':'contour_lines',
     'desc':' '.join(['One of: DEFAULT, CONTOUR-LINES,',
       'GRID-BATH/SIZE/DECOMP-#. (GMT>=4.3.0).']),
       'type':str, 'default':'DEFAULT'},
