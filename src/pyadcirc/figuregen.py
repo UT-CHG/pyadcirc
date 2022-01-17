@@ -10,6 +10,8 @@ from pyadcirc.fg_config import FG_config
 from PyInquirer import style_from_dict, Token, prompt, Separator
 from pprint import pprint
 
+FG_DOC_LINK = 'https://ccht.ccee.ncsu.edu/figuregen-v-49/'
+
 try:
     from termcolor import colored
 except ImportError:
@@ -78,6 +80,63 @@ def read(input_file:str):
 
   pp(config)
   return config
+
+
+@click.command()
+@click.argument('config', type=dict)
+def write(input_file:str):
+  """Read a FigureGen config file (.inp)
+
+  Parameters
+  ----------
+  input_file : str
+    Path to FigureGen .inp input file.
+
+  Returns
+  -------
+  config : dict
+    Configuration dictionary for FigureGen
+  """
+
+  config = {}
+  config['contours'] = {}         # contour settings between lines (15,34)
+  config['particles'] = {}        # particle settings between lines (34,38)
+  config['vectors'] = {}          # vector settings between lines (38,48)
+
+  for idx,line in enumerate(input_file):
+    if idx in [0,1,15,34,38,48]:
+      # Lines correspond to blank/comment lines
+      continue
+    else:
+      val_type = FG_config[idx]['type']
+      val = str(line[0:50]).strip()
+      if val_type==int:
+        val = int(val)
+      elif val_type==float:
+        val = float(val)
+      elif val_type==bool:
+        val = False if int(val)==0 else True
+      elif type(val_type)==tuple:
+        val = tuple([t(v) for t,v in zip(list(val_type),val.split(','))])
+      else:
+        pass
+
+      if idx>15 and idx<34:
+        # contour dictionary value
+        config['contours'][FG_config[idx]['name']] = val
+      elif idx>34 and idx<38:
+        # contour dictionary value
+        config['particles'][FG_config[idx]['name']] = val
+      elif idx>38 and idx<48:
+        # contour dictionary value
+        config['vectors'][FG_config[idx]['name']] = val
+      else:
+        config[FG_config[idx]['name']] = val
+
+  pp(config)
+  return config
+
+
 
 
 @click.command()
@@ -248,23 +307,58 @@ def config():
     config['plot_grid'] = True
   if 'Contours' in selected_options:
     contour_questions = [
-       {
-        'type': 'list',
-        'name': 'file_format',
-        'message': 'Choose format of contour data file',
-        'choices': [ 'ADCIRC-OUTPUT', 'GRID-BATH', 'SIZE', 'DECOMP-#',
-          '13-MANNING','CANOPY','TAU0','EVIS','WIND-REDUCTION(-#)'],
-        'default': 'GRID-BATH'
+        {
+         'type': 'input',
+         'name': 'file',
+         'message': 'Contour data file path',
+         'choices': [ 'ADCIRC-OUTPUT', 'GRID-BATH', 'SIZE', 'DECOMP-#',
+           '13-MANNING','CANOPY','TAU0','EVIS','WIND-REDUCTION(-#)'],
+         'default': 'GRID-BATH'
         },
-       {
-        'type': 'list',
-        'name': 'contour_lines',
-        'message': 'Choose contour lines option (see example 7 at )',
-        'choices': [ 'ADCIRC-OUTPUT', 'GRID-BATH', 'SIZE', 'DECOMP-#',
-          '13-MANNING','CANOPY','TAU0','EVIS','WIND-REDUCTION(-#)'],
-        'default': 'GRID-BATH'
+        {
+         'type': 'list',
+         'name': 'file_format',
+         'message': 'Choose format of contour data file',
+         'choices': [ 'ADCIRC-OUTPUT', 'GRID-BATH', 'SIZE', 'DECOMP-#',
+           '13-MANNING','CANOPY','TAU0','EVIS','WIND-REDUCTION(-#)'],
+         'default': 'GRID-BATH'
+        },
+        {
+          'type': 'confirm',
+          'name': 'contour_lines',
+          'message': 'Plot contour lines?',
+          'default': 'Y',
+        },
+        {
+          'type': 'confirm',
+          'name': 'contour_fill',
+          'message': 'Fill contour intervals?',
+          'default': 'Y',
         }
-    ]
+     ]
+
+    c_opts = prompt(contour_questions, style=style)
+    config['contour']['file'] = c_opts['file']
+    config['contour']['format'] = c_opts['file_format']
+
+    if c_opts['contour_lines']:
+      c_lines_question = [
+            {'type': 'confirm',
+             'name': 'contour_lines',
+             'message': 'Plot colored lines?',
+             'default': 'Y'}]
+      c_lines_opts = prompt(c_lines_question, style=style)
+      if c_lines_opts['contour_lines']:
+        c_lines_opts_question = [
+            {'type': 'list',
+             'name': 'contour_lines',
+             'message': 'colored lines?',
+             'choices': ['DEFAULT', 'CONTOUR-LINES',
+                 'GRID-BATH', 'SIZE', 'DECOMP-#'],
+             'default': 'DEFAULT'}]
+        c_lines_opts = prompt(c_lines_opts_question, style=style)
+        config['contour']['color_lines'] = c_lines_opts['contour_lines']
+    pdb.set_trace()
   if 'Particle Data' in selected_options:
     pass
   if 'Vector Data' in selected_options:
