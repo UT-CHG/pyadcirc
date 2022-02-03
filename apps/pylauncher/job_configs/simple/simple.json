@@ -1,0 +1,15 @@
+{
+  "name": "{{ app.name }}-{{ job.name }}",
+  "appId": "{{ app.name }}-{{ app.version}}",
+  "nodeCount": 1,
+  "processorsPerNode": 2,
+  "memoryPerNode": "1",
+  "maxRunTime": "00:05:00",
+  "archive": true,
+  "archiveOnAppError": true,
+  "inputs": {
+        "job_inputs":  "{{ job.input_dir }}/{{ job.name }}.zip"
+  },
+  "parameters": {
+  }
+}

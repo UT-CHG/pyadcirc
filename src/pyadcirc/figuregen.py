@@ -10,6 +10,24 @@ from pyadcirc.fg_config import FG_config
 from PyInquirer import style_from_dict, Token, prompt, Separator
 from pprint import pprint
 
+# See if docker, tapis, or taccjm options are installed for use
+try:
+  import docker
+  docker_flag = True
+except ModuleNotFoundError:
+  docker_flag = False
+try:
+  import tapis
+  tapis_flag = True
+except ModuleNotFoundError:
+  tapis_flag = False
+try:
+  import taccjm
+  taccjm_flag = True
+except ModuleNotFoundError:
+  taccjm_flag = False
+
+# Link to documentation online about FigureGen
 FG_DOC_LINK = 'https://ccht.ccee.ncsu.edu/figuregen-v-49/'
 
 try:
@@ -84,7 +102,7 @@ def read(input_file:str):
 
 @click.command()
 @click.argument('config', type=dict)
-def write(input_file:str):
+def write(config:dict):
   """Read a FigureGen config file (.inp)
 
   Parameters
@@ -383,6 +401,12 @@ def config():
   pp(config)
   pdb.set_trace()
   pp("here")
+
+
+@click.command()
+@click.argument('input_file', type=click.File('r'))
+def run(type:str, input_file:str):
+  pass
 
 
 cli.add_command(read)
