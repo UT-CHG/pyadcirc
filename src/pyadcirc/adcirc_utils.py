@@ -16,12 +16,6 @@ import sys
 
 from pyadcirc import __version__
 
-__author__ = "Carlos del-Castillo-Negrete"
-__copyright__ = "Carlos del-Castillo-Negrete"
-__license__ = "MIT"
-_logger = logging.getLogger(__name__)
-
-
 import re
 import os
 import pdb
@@ -39,6 +33,11 @@ from functools import reduce
 from geopy.distance import distance
 from time import perf_counter, sleep
 from contextlib import contextmanager
+
+__author__ = "Carlos del-Castillo-Negrete"
+__copyright__ = "Carlos del-Castillo-Negrete"
+__license__ = "MIT"
+_logger = logging.getLogger(__name__)
 
 
 P_CONFIGS = {}
@@ -184,7 +183,7 @@ def get_latest_ts(path:str):
   raise Exception("adcirc.log found but time stepping hasn't started yet.")
 
 
-def read_fort14(f14_file, ds=None):
+def read_fort14(f14_file, ds=None, load_grid=True):
   """read_fort14.
   Reads in ADCIRC fort.14 f14_file
 
@@ -203,20 +202,22 @@ def read_fort14(f14_file, ds=None):
   # for k=1 to NP
   #    JN, X(JN), Y(JN), DP(JN)
   # end k loop
-  logger.info('Reading Node Map.')
-  ds = xr.merge([ds, pd.read_csv(f14_file, delim_whitespace=True, nrows=ds.attrs['NP'],
-      skiprows=ln-1, header=None, names=['JN', 'X', 'Y', 'DP']).set_index('JN').to_xarray()],
-      combine_attrs='override')
+  if load_grid:
+    logger.info('Reading Node Map.')
+    ds = xr.merge([ds, pd.read_csv(f14_file, delim_whitespace=True, nrows=ds.attrs['NP'],
+        skiprows=ln-1, header=None, names=['JN', 'X', 'Y', 'DP']).set_index('JN').to_xarray()],
+        combine_attrs='override')
   ln += ds.attrs['NP']
 
   # (2+NP)-(2+NP+NE) : ELEMENTS
   # for k=1 to NE
   #    JE, NHY, NM(JE,1),NM(JE,2), NM(JE,3)
   # end k loop
-  logger.info('Reading Element Map.')
-  ds = xr.merge([ds, pd.read_csv(f14_file, delim_whitespace=True, nrows=ds.attrs['NE'],
-      skiprows=ln-1, header=None, names=['JE', 'NHEY', 'NM_1', 'NM_2',
-          'NM_3']).set_index('JE').to_xarray()], combine_attrs='override')
+  if load_grid:
+    logger.info('Reading Element Map.')
+    ds = xr.merge([ds, pd.read_csv(f14_file, delim_whitespace=True, nrows=ds.attrs['NE'],
+        skiprows=ln-1, header=None, names=['JE', 'NHEY', 'NM_1', 'NM_2',
+            'NM_3']).set_index('JE').to_xarray()], combine_attrs='override')
   ln += ds.attrs['NE']
 
   # (3+NP+NE) : NOPE = number of elevation specified boundary forcing segments.
@@ -327,8 +328,13 @@ def read_fort15(f15_file, ds=None):
     ds, ln = read_param_line(ds, ['TAU0_FullDomain_Min', 'TAU0_FullDomain_Max'], f15_file,
         ln=ln, dtypes=2*[float])
 
-  for i, p in enumerate(['DTDP', 'STATIM', 'REFTIM', 'WTIMINC ', 'RNDAY']):
+  for i, p in enumerate(['DTDP', 'STATIM', 'REFTIM']):
     ds, ln = read_param_line(ds, [p], f15_file, ln=ln, dtypes=[int])
+
+  if ds.attrs['NWS']!=0:
+    ds, ln = read_param_line(ds, ['WTIMINC'], f15_file, ln=ln, dtypes=[int])
+
+  ds, ln = read_param_line(ds, ['RNDAY'], f15_file, ln=ln, dtypes=[float])
 
   if ds.attrs['NRAMP'] in [0, 1]:
     ds, ln = read_param_line(ds, ['DRAMP'], f15_file, ln=ln, dtypes=[int])
@@ -405,18 +411,16 @@ def read_fort15(f15_file, ds=None):
       combine_attrs='override')
 
   # Harmonic forcing function specification at elevation sepcified boundaries
-  force_elev = pd.read_csv(f15_file, skiprows=ln, names=['EMO', 'EFA'], delim_whitespace=True,
-      header=None, low_memory=False)
-  idxs = force_elev[force_elev['EFA'].isnull() | force_elev['EFA'].str.contains('!')].index.tolist()
-  force_elev['ALPHA'] = np.nan
-  temp, _ = read_param_line(xr.Dataset(), ['NAME'], f15_file, ln=ln)
-  force_elev.loc[0:idxs[0], 'ALPHA'] = temp.attrs['NAME']
-  for i in range(ds.attrs['NBFR']-1):
-    force_elev.loc[idxs[i]:idxs[i+1], 'ALPHA'] = force_elev.loc[idxs[i], 'EMO']
-  force_elev = force_elev.drop(idxs[:i+1] + list(range(idxs[i+1], force_elev.shape[0])))
-  force_elev['EMO'] = force_elev['EMO'].astype(float)
-  force_elev['EFA'] = force_elev['EFA'].astype(float)
-  ln = ln + force_elev.shape[0] + ds.attrs['NBFR']
+  force_elevs = []
+  for i in range(ds.attrs['NBFR']):
+    temp, _ = read_param_line(temp, ['ALPHA'], f15_file, ln=ln)
+    temp_df = pd.read_csv(f15_file, skiprows=ln, nrows=ds.attrs['NETA'],
+        names=['EMO', 'EFA'], delim_whitespace=True, header=None,
+        low_memory=False)
+    temp_df['ALPHA'] = temp.attrs['ALPHA']
+    force_elevs.append(temp_df)
+    ln += ds.attrs['NETA'] + 1
+  force_elev = pd.concat(force_elevs)
   ds = xr.merge([ds, force_elev.set_index('ALPHA').to_xarray()],
       combine_attrs='override')
 
@@ -925,8 +929,13 @@ def write_fort15(ds, f15_file):
     if float(ds.attrs['TAU0'])==-5.0:
       write_param_line(ds, ['TAU0_FullDomain_Min', 'TAU0_FullDomain_Max'], f15)
 
-    for i, p in enumerate(['DTDP', 'STATIM', 'REFTIM', 'WTIMINC ', 'RNDAY']):
+    for i, p in enumerate(['DTDP', 'STATIM', 'REFTIM']):
       write_param_line(ds, [p], f15)
+
+    if ds.attrs['NWS']!=0:
+      write_param_line(ds, ['WTIMINC'], f15)
+
+    write_param_line(ds, ['RNDAY'], f15)
 
     nramp = int(ds.attrs['NRAMP'])
     if nramp in [0, 1]:

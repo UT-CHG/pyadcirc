@@ -3,51 +3,58 @@
 helpFunction()
 {
 	echo ""
-	echo "Usage: $0 version [targetDir]"
-	echo -e "\tversion - of adcirc to build. Must be valid github tag at https://github.com/adcirc/adcirc-cg."
-	echo -e "\ttargetDir -  name of target directory to place adcirc executables in. Default ~/adcirc_execs"
+	echo "Usage: $0 name [git] [tag]"
+	echo -e "\tname - of adcirc to version/tag to build. Must be valid github tag at https://github.com/adcirc/adcirc-cg."
+	echo -e "\tgit - URL. Default at https://github.com/adcirc/adcirc-cg)"
+	echo -e "\ttag - 1 if is tagged version, 0 if not. Default is 0."
 	exit 1 # Exit script after printing help
 }
 
 # Print helpFunction in case parameters are empty
-version=$1
-if [ -z "$version" ] 
+name=$1
+if [ -z "$name" ] 
 then
-	echo "Must specify version.";
+	echo "Must specify version/tag name.";
 	helpFunction
 fi
 
-targetDir=$2
-if [ -z "$targetDir" ] 
+gitURL=$2
+if [ -z "$gitURL" ] 
 then
-	targetDir=$HOME/adcirc_execs
+	gitURL="https://github.com/adcirc/adcirc-cg"
 fi
 
+tag=$3
+
 # Make ExeDir if it doesn't exist
+targetDir=$WORK/adcirc_execs
 mkdir -p $targetDir
 cd $targetDir
 
 # Make directory for particular version
-mkdir -p bin/$version
+mkdir -p bin/$name
 
 # Checkout adcirc repository in work directory if does not exist
 if [ ! -d "repo" ]
 then
 	log INFO "Cloning ADCIRC Repo"
-	git clone -q https://github.com/cdelcastillo21/adcirc-cg repo 
-#	git clone -q https://github.com/adcirc/adcirc-cg repo >> adcirc_build.log
+	git clone -q $gitURL repo 
 fi
 
-# Move into build directory 
+# Move into git repo 
 cd repo 
 
 # Fetch all remote tags/branches
-git fetch --all --tags > adcirc_build.log 2>&1
+git fetch --all --tags 
+git pull 
 
-# Checkout branch, for checking out tagged version (For stable releases), see commented out line below
-# git checkout remotes/origin/$VERSION -b  $VERSION-branch > adcirc_build.log 2>&1
-git pull >> adcirc_build.log 2>&1
-git checkout tags/v55.00 -b  v55.00-branch > adcirc_build.log 2>&1
+# Checkout version branch or tagged version 
+if [ -z "$tag" ] 
+then
+	git checkout remotes/origin/$name -b  $name-build 
+else
+	git checkout tags/$name -b  $name-branch 
+fi
 
 # Make new cmake build dir
 mkdir -p build
@@ -60,7 +67,7 @@ module load netcdf cmake
 cmake .. -DCMAKE_C_COMPILER=icc \
 	 -DCMAKE_CXX_COMPILER=icpc \
 	 -DCMAKE_Fortran_COMPILER=ifort \
-	 -DENABLE_GRIB2=ON \
+	 -DENABLE_GRIB2=OFF \
 	 -DENABLE_DATETIME=ON \
 	 -DENABLE_OUTPUT_NETCDF=ON \
 	 -DNETCDFHOME=$TACC_NETCDF_DIR \
@@ -72,4 +79,4 @@ cmake .. -DCMAKE_C_COMPILER=icc \
 
 # Build the code using 6 cores and move executables when done. Do in background
 # Let any errors print out to stderr so we can pick them up back in execution of script
-make -j6 >> ../adcirc_build.log 2>&1 && cp adcprep padcirc padcswan ../../bin/$version/
+make -j6 >> ../adcirc_build.log 2>&1 && cp adcprep padcirc padcswan ../../bin/$name/

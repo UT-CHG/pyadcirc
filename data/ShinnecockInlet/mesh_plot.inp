@@ -43,7 +43,7 @@ ADCIRC-OUTPUT                                      ! Vector file format flag: AD
 3.28000                                            ! Unit conversion factor for vectors.
 ft/s                                               ! Alphanumeric label for units after conversion.
 20.0                                               ! Magnitude of vector corresponding to one inch on the page.
-0.5,k                                                ! Spacing between vectors in degrees.
+0.5                                                ! Spacing between vectors in degrees.
 0,0,0
 8.0                                                ! Magnitude of vector to show in the vector scale (or FIND to determine from file).
 PARAMETERS FOR OVERALL PLOT(S):
