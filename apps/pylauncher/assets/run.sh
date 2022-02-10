@@ -9,7 +9,7 @@
 DEBUG=true
 
 log () {
-  echo "$(date) PYLAUNCHER - ${1} - ${2}" 
+  echo "$(date) | PYLAUNCHER | ${1} | ${2}" 
 }
 
 if [ "$DEBUG" = true ] ; then
