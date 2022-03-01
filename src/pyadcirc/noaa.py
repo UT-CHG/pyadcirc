@@ -1,3 +1,10 @@
+"""
+noaa - Utilities for pulling NOAA Tide station data
+
+See NOAA Websites for more information:
+    - https://tidesandcurrents.noaa.gov
+    - https://tidesandcurrents.noaa.gov/stations.html?type=Water+Levels
+"""
 from io import StringIO
 from pathlib import Path
 
@@ -5,14 +12,8 @@ import pandas as pd
 import requests
 import xarray as xa
 
-# Path to csv file with noaa stations
-# Load csv file into df with all tide stations
-NOAA_STATIONS = pd.read_csv(
-    Path(Path(__file__).parents[0] / "noaa_stations.csv"),
-    sep="|",
-    index_col=False,
-    names=["Region", "ID", "Name"],
-)
+# Path to json file with noaa station data pulled from website
+NOAA_STATIONS = pd.read_json(Path(Path(__file__).parents[0] / "noaa_stations.json"))
 
 
 def parse_f15_station_list(region: str):

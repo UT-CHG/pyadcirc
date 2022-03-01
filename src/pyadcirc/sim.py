@@ -4,13 +4,16 @@
 from taccjm import taccjm as tjm
 from pyadcrc.adcirc_utils import *
 
-class ADCIRCSimManager(object):
+class ADCIRCSim(object):
 
     """Docstring for ADCIRCSim. """
 
     def __init__(self,
             jm_id:str=None,
             exec_system:str=None,
+            execs_path:str=None,
+            inputs_path:str=None,
+            storage_path:str=None,
             user:str=None):
         """TODO: to be defined. """
 
