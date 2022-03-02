@@ -101,6 +101,69 @@ def init_globus_client(client_id:str, token_path:str=None):
     return client, authorizer
 
 
+def cfsv2_grib_to_adcirc_netcdf(files: List[str],
+                                data_dir: str = None,
+                                output_name: str = None,
+                                bounding_box : List[float] = None,
+                                date_range : Tuple[str] = None):
+    """
+    CFSv2 Grib Data to ADCIRC netcdf fort.22* metereological forcing files.
+
+    Converts and sub-samples data in time and space from a set of grib files
+    that have been downloaded from NCAR's CFSv2 data set (id='ds094.1')
+
+    Parameters
+    ----------
+    files : List[str]
+      List of grib files to open. Must all correspond to the same type of data.
+    data_dir : str, optional
+      Directory where grib files are location. Defaults to current working
+      directory.
+    output_name : str, optional
+      Name of output netcdf file to write. If none specified (default), then no
+      output file will be written, just the read in xarray will be returned.
+    bounding_box : List[float], optiontal
+      Bounding box list in `[long_min, long_max, lat_min, lat_max]` format. By
+      default grib datastes from CFSv2 are global.
+    date_range : Tuple[str]
+      Date tuple, (start_date, end_date), to be fed into
+      `data.sel(time=slice(start_date, end_Date))` to sub-sample `data` along
+      the time dimension.
+
+    Returns
+    -------
+    data : xarray.Dataset
+      xarray.Dataset containing dimensiosn `(time, latitude, longitude)` with
+      data variables corresponding to meteorological forcing data from CFSv2.
+
+    """
+    # Open data-set
+    data = xr.open_mfdataset(files)
+
+    # Filter according to passed in args
+    if bounding_box is not None:
+      data = data.sel(
+          latitude=slice(bounding_box[3], bounding_box[2]),
+          longitude=slice(bounding_box[0], bounding_box[1]),
+      )
+    if date_range is not None:
+      data = data.sel(time=slice(date_range[0], date_range[1]))
+
+    # Data is divided into steps within each time step. Select first
+    data = data.isel(step=0)
+
+    # Drop unecessary coordiantes
+    coords = ["time", "latitude", "longitude"]
+    drop = [x for x in list(data.coords.keys()) if x not in coords]
+    for x in drop:
+        data = data.drop(x)
+
+    # Write only if necessary
+    if output_name is not None:
+      data.to_netcdf(output_name)
+
+    return data
+
 
 class NCARDataTransfer(object):
 
@@ -225,7 +288,7 @@ class NCARDataTransfer(object):
 
         return transfer_data
 
-    def submit(self, transfer_data:dict):
+    def submit(self, transfer_data: dict):
         """Submit Datatransfer
 
         Parameters
@@ -240,4 +303,7 @@ class NCARDataTransfer(object):
 
         """
         return self.transfer_client.submit_transfer(transfer_data)
+
+
+
 

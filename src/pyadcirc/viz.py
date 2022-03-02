@@ -5,11 +5,9 @@ High level vizualization functions for ADCIRC data.
 
 """
 from pathlib import Path
-from typing import List
+from typing import AnyStr, Callable, List, Tuple
 
-import imageio
 import imageio as iio
-import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import pandas as pd
@@ -125,3 +123,50 @@ def pyplot_mesh(
 
     if save_path is not None:
         plt.savefig(save_path)
+
+
+def generate_gif(name:str, gen_image: Callable,
+                 steps: List=None, figsize: Tuple=(12,6), build_dir: str=None):
+    """
+    Generate GIF
+
+    Given a callable and a list of arguments to pass to the callable, build a
+    gif using sequence of images produced by `gen_image` callabe function.
+
+    Parameters
+    ----------
+
+    Returns
+    -------
+
+
+    """
+
+    build_dir = Path.cwd() if build_dir is None else Path(build_dir)
+
+    gif_images_path = build_dir / ".gif_images"
+    gif_images_path.mkdir(exist_ok=True)
+    gif_path = build_dir / name
+
+    images = []
+    if steps is None:
+        steps = range(len(data["time"]))
+    for t in steps:
+        plt.figure(figsize=(12, 6))
+        filename = str(gif_images_path / f"{t}.png")
+        gen_image(t, filename)
+        plt.close()
+        images.append(filename)
+
+    with iio.get_writer(str(gif_path), mode="I") as writer:
+        for i in images:
+            writer.append_data(iio.imread(i))
+
+    optimize(gif_path)
+
+    for i in images:
+        Path(i).unlink()
+
+    return gif_path
+
+
