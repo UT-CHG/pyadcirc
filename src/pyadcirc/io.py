@@ -28,7 +28,6 @@ __license__ = "MIT"
 _logger = logging.getLogger(__name__)
 
 
-P_CONFIGS = {}
 pd.options.display.float_format = "{:,.10f}".format
 logger = logging.getLogger()
 
@@ -1122,9 +1121,6 @@ def process_adcirc_configs(path, filt='fort.*', met_times=[]):
     logger.info(f"Read {ff} successfully! - {read_time()[1]}")
 
   return ds
-
-
-P_CONFIGS =  pull_param_configs()
 
 
 # ---- Python API ----

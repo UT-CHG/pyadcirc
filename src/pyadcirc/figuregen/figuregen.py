@@ -11,7 +11,7 @@ import colorcet as cc
 import matplotlib as mpl
 import numpy as np
 import pandas as pd
-import pyadcirc.adcirc_utils as au
+from pyadcirc.io import read_fort14
 import six
 from InquirerPy import inquirer
 from InquirerPy.base.control import Choice
@@ -119,7 +119,7 @@ def get_bbox(f14_file: str, scale_x: float = 0.1, scale_y: float = 0.1):
 
     """
 
-    f14 = au.read_fort14(f14_file)
+    f14 = read_fort14(f14_file)
 
     bounds = [
         [f14["X"].values.min(), f14["X"].values.max()],
