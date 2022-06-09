@@ -4,23 +4,32 @@ viz.py
 High level vizualization functions for ADCIRC data.
 
 """
+import pdb
 from pathlib import Path
-from typing import AnyStr, Callable, List, Tuple
+from typing import AnyStr, Callable, List, Tuple, Union
 
 import imageio as iio
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
+import numpy as np
 import pandas as pd
 import xarray as xr
 from cartopy import crs, feature
 from cartopy.mpl.gridliner import LATITUDE_FORMATTER, LONGITUDE_FORMATTER
 from pygifsicle import optimize
 
-
 def pyplot_mesh(
     data: xr.Dataset,
     var: str,
+    data_coords=crs.PlateCarree(),
+    time_var:str = 'time',
+    data_vars: List[str]=['longitude', 'latitude'],
+    vec_data: xr.Dataset=None,
+    vec_vars: List[str]=['longitude', 'latitude', 'u10', 'v10'],
+    num_vecs: int = 10,
+    vec_coords=crs.PlateCarree(),
     save_path: str = None,
+    bounding_box: List[float]=None,
     timestep: int = 0,
     time: str = None,
     ax: plt.axes = None,
@@ -30,8 +39,6 @@ def pyplot_mesh(
         ("coastlines", {"resolution": "50m", "color": "black"}),
         ("land", {"facecolor": "wheat"}),
         ("ocean", {}),
-        ("states", {"linestyle": "-", "lw": 1.0, "edgecolor": "black"}),
-        ("borders", {"linestyle": "-", "lw": 1.0, "edgecolor": "black"}),
         ("rivers", {}),
     ],
     title: str = None,
@@ -45,6 +52,18 @@ def pyplot_mesh(
         "linestyle": "--",
         "linewidth": 2,
     },
+    vec_params: dict = {
+        'scale': 300,
+        'linewidth': 0.2,
+        'headlength': 4,
+        'headwidth': 4,
+        'headaxislength': 4,
+        'width': 0.003,
+    },
+    cmap: str = 'viridis',
+    colorbar_opts: dict = {
+        'shrink': 0.8,
+    }
 ):
     """
     PyPlot Mesh
@@ -65,20 +84,47 @@ def pyplot_mesh(
     ax = plt.axes(projection=projection,
                   facecolor="gray") if ax is None else ax
 
-    # Plot data and cartopy features
+    # Select timestep we want to plot if specified
     if time is not None:
-        d = data[var].sel(time=time)
+        d = data[var].sel({time_var:time}, method='nearest')
+        if vec_data is not None:
+            vec_data = vec_data.sel({time_var:time}, method='nearest')
     else:
-        d = data[var].isel(time=timestep)
+        d = data[var].isel({time_var:timestep})
+        if vec_data is not None:
+            vec_data = vec_data.isel({time_var:timestep})
+
+    if bounding_box is not None:
+        d = d.sel({data_vars[0]:slice(bounding_box[0], bounding_box[1]),
+                   data_vars[1]:slice(bounding_box[3], bounding_box[2])})
+        if vec_data is not None:
+            vec_data = vec_data.sel(
+                    {vec_vars[0]:slice(bounding_box[0], bounding_box[1]),
+                     vec_vars[1]:slice(bounding_box[3], bounding_box[2])})
 
     # Plot main data - Note adcirc met netcdf data should always be in long/lat
     # PlateCarree projection, but the axis plot may be on a different
     # projection, so must specify the transform argument
     if vrange is not None:
-        p = d.plot(ax=ax, transform=crs.PlateCarree(),
-                   vmin=vrange[0], vmax=vrange[1])
+        p = d.plot(ax=ax, transform=data_coords,
+                   vmin=vrange[0], vmax=vrange[1],
+                   cmap=cmap, cbar_kwargs=colorbar_opts)
     else:
-        p = d.plot(ax=ax, transform=crs.PlateCarree())
+        p = d.plot(ax=ax, transform=data_coords,
+                   cbar_kwargs=colorbar_opts, cmap=cmap)
+
+    # Plot vector data
+    if vec_data is not None:
+        num_lon = len(vec_data[vec_vars[0]])
+        num_lat = len(vec_data[vec_vars[1]])
+        long_idxs = np.arange(0, num_lon, int(num_lon / num_vecs) + 1)
+        lat_idxs = np.arange(0, num_lat, int(num_lat / num_vecs) + 1)
+
+        vec_data.isel(longitude=long_idxs,
+                      latitude=lat_idxs).plot.quiver(
+            transform=vec_coords,
+            x=vec_vars[0], y=vec_vars[1], u=vec_vars[2], v=vec_vars[3],
+            **vec_params)
 
     # Add desired features
     for f in features:
@@ -126,7 +172,11 @@ def pyplot_mesh(
 
 
 def generate_gif(name:str, gen_image: Callable,
-                 steps: List=None, figsize: Tuple=(12,6), build_dir: str=None):
+                 args: List,
+                 repeat: Union[List, int]=None,
+                 figsize: Tuple=(12,6),
+                 build_dir: str=None,
+                 hold_end: float=0.25):
     """
     Generate GIF
 
@@ -149,17 +199,29 @@ def generate_gif(name:str, gen_image: Callable,
     gif_path = build_dir / name
 
     images = []
-    if steps is None:
-        steps = range(len(data["time"]))
-    for t in steps:
-        plt.figure(figsize=(12, 6))
-        filename = str(gif_images_path / f"{t}.png")
-        gen_image(t, filename)
-        plt.close()
+    gif_images = []
+
+    if repeat is None:
+        repeat = np.array([1]).repeat(len(args))
+    elif type(repeat) == int:
+        repeat = np.array([repeat]).repeat(len(args))
+
+    if args is None:
+        args = range(len(data["time"]))
+    for i, t in enumerate(args):
+        filename = str(gif_images_path / f"{t}")
+        filename = gen_image(t, filename)
         images.append(filename)
+        for j in range(repeat[i]):
+            gif_images.append(filename)
+
+    if hold_end>0:
+        num_extra = int(hold_end*len(gif_images))
+        for i in range(num_extra):
+            gif_images.append(filename)
 
     with iio.get_writer(str(gif_path), mode="I") as writer:
-        for i in images:
+        for i in gif_images:
             writer.append_data(iio.imread(i))
 
     optimize(gif_path)

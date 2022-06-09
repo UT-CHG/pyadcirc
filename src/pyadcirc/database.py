@@ -11,12 +11,17 @@ Implements Database for ADCIRC Data to be stored and accessed from either:
 from taccjm import taccjm as tjm
 
 
-class ADCIRCInputs(object):
+class ADCIRCDataBase(object):
+    """Class defining ADCIRC DataBase on TACC System"""
 
-    """Class defining ADCIRC inputs"""
-
-    def __init__(self, path:str, jm_id:str):
+    def __init__(self, jm_id:str, root:str, system='ls6'):
         """TODO: to be defined. """
 
+        if jm not in [j["jm_id"] for j in tjm.list_jms()]:
+            tjm.init_jm(jm, system=system)
 
-        
+
+
+
+
+

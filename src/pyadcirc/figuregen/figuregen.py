@@ -35,7 +35,7 @@ try:
         docker.images.get("georgiastuart/figuregen-serial:latest")
 
     docker_flag = True
-except ModuleNotFoundError:
+except Exception as e:
     docker_flag = False
 try:
     import tapis

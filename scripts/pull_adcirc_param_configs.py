@@ -18,8 +18,8 @@ __license__ = "MIT"
 
 
 ADCIRC_CONFIGS = {}
-URL = ("https://adcirc.org/home/documentation/",
-       "users-manual-v53/parameter-definitions")
+URL = ''.join(["https://adcirc.org/home/documentation/",
+               "users-manual-v53/parameter-definitions"])
 
 
 def pull_param_configs(url: str = URL):
@@ -69,3 +69,5 @@ def scrape(url: str, output_file: str = "adcirc_defs.json"):
 if __name__ == "__main__":
     """Create param defs json file."""
     configs = scrape()
+
+    print(configs)
