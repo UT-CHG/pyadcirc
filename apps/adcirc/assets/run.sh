@@ -17,7 +17,7 @@
 DEBUG=true
 
 log () {
-  echo "$(date) : ${1} - ${2}"
+  echo "$(date) | ${1} | ${2}"
 }
 
 if [ "$DEBUG" = true ] ; then
@@ -28,8 +28,13 @@ fi
 # If running through tapis - callback function to alert job has started
 ${AGAVE_JOB_CALLBACK_RUNNNG}
 
-# Load necessary modules - Netcdf for adcrc
+# Load necessary modules - Netcdf for adcirc
 module load netcdf
+if [[ "$remora" -eq "1" ]]
+then
+	log INFO "Loading remora"
+	module load remora
+fi
 
 # Move inputs to current (job) directory
 ln -sf ${inputDirectory}/* .
@@ -52,7 +57,14 @@ printf "${PCORES}\n2\n" | adcprep
 
 ls -lat
 
-ibrun -np $CORES ./padcirc -W $WRITE_PROC >> output.eo.txt 2>&1
+if [[ "$remora" -eq "1" ]]
+then
+	log INFO "Running ADCIRC with REMORA monitoring"
+	remora ibrun -np $CORES ./padcirc -W $WRITE_PROC >> output.eo.txt 2>&1
+elif
+	log INFO "Running ADCIRC."
+	ibrun -np $CORES ./padcirc -W $WRITE_PROC >> output.eo.txt 2>&1
+fi
 
 if [ ! $? ]; then
 	log ERROR "ADCIRC exited with an error status. $?" 
@@ -62,5 +74,7 @@ if [ ! $? ]; then
 
 	exit
 fi
+
+log INFO "ADCIRC Run Complete" 
 
 exit 0

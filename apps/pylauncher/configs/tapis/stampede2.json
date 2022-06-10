@@ -1,0 +1,129 @@
+{
+  "checkpointable": false,
+  "name": "pylauncher_adcirc_s2",
+  "version": "0.0.0",
+  "executionSystem": "designsafe.community.exec.stampede2.nores",
+  "executionType": "HPC",
+  "deploymentPath": "clos21/apps/plyauncher_adcirc_s2-0.0.0",
+  "deploymentSystem": "designsafe.storage.default",
+  "helpURI": "",
+  "label": "PYLAUNCHER",
+  "shortDescription": "General purpose pylauncher application",
+  "longDescription": "Wrapper around pylauncher for running ensemble adcirc simuations.",
+  "modules": [],
+  "ontology": ["pylauncher", "parameteric_jobs"],
+  "parallelism": "PARALLEL",
+  "tags": [],
+  "templatePath": "run.sh",
+  "testPath": "test.sh",
+  "defaultMaxRunTime": "01:00:00",
+  "defaultProcessorsPerNode": 10,
+  "defaultMemoryPerNode": 4,
+  "defaultNodeCount": 1,
+  "defaultMaxRunTime": "02:00:00",
+  "defaultQueue": "normal",
+  "inputs": [   {
+    "id": "job_inputs",
+    "value": {
+      "visible": true,
+      "required": false,
+      "order": 1
+    },
+    "details": {
+      "label": "Job Inputs",
+      "description": "Zipped folder containing at least a generator.sh script and if needed supporting files for jobs to run. Contents are fully copied into the generator directory. Application calls repeatedly calls generator.sh entry point script and passes it the iteration number and number of processes available for all jobs before every call to pylauncher, until the generator script produces no input file for pylauncher." 
+    },
+    "semantics": {
+      "fileTypes": ["raw-0"],
+      "minCardinality": 0,
+      "maxCardinality": 1,
+      "ontology": []
+    }
+  }
+],
+  "parameters": [
+    {
+      "id": "custom_modules",
+      "value": {
+        "visible": true,
+        "required": true,
+        "type": "string",
+        "order": 0,
+        "default": ""
+      },
+      "details": {
+        "label": "Custom Modules",
+        "description": "Custom tacc modules required for jobs to be execued. Will override default."
+      },
+      "semantics": {
+        "ontology": []
+      }
+    },
+    {
+      "id": "pylauncher_input",
+      "value": {
+        "visible": true,
+        "required": true,
+        "type": "string",
+        "order": 0,
+        "default": "jobs_list.csv"
+      },
+      "details": {
+        "label": "Pylauncher input file name",
+        "description": "Name of input file for pylauncher (.json or .csv supported). File name must correspond to name of file produced by generator script if using."
+      },
+      "semantics": {
+        "ontology": []
+      }
+    },
+    {
+      "id": "generator_args",
+      "value": {
+        "visible": true,
+        "required": false,
+        "type": "string",
+        "order": 0,
+        "default": "" 
+      },
+      "details": {
+        "label": "Generator Arguments",
+        "description": "Argument string to pass as extra arguments to every call to generator script."
+      },
+      "semantics": {
+        "ontology": []
+      }
+    }
+  ],
+  "outputs": [
+    {
+      "id": "logs",
+      "value": {
+        "order": 100,
+        "default": "logs.zip"
+      },
+      "details": {
+        "label": "Compressed folder containing all log files."
+      },
+      "semantics": {
+        "minCardinality": 0,
+        "maxCardinality": 1,
+        "ontology": []
+      }
+    },
+    {
+      "id": "outputs",
+      "value": {
+        "order": 200,
+        "default": "logs.zip"
+      },
+      "details": {
+        "label": "Compressed folder containing all output files."
+      },
+      "semantics": {
+        "minCardinality": 0,
+        "maxCardinality": 1,
+        "ontology": []
+      }
+    }
+  ]
+}

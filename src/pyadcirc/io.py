@@ -4,33 +4,31 @@ io.py - Utilities Reading/Writing local ADCIRC Files
 """
 
 import argparse
+import glob
+import linecache as lc
 import logging
-import sys
-
-from pyadcirc import __version__
-
-import re
 import os
 import pdb
-import glob
-import logging
+import re
+import sys
+from contextlib import contextmanager
+from functools import reduce
+from pathlib import Path
+from time import perf_counter, sleep
+from typing import List
+
 import numpy as np
 import pandas as pd
 import xarray as xr
-import linecache as lc
-from functools import reduce
-from time import perf_counter, sleep
-from contextlib import contextmanager
+from pyadcirc import __version__
 
 __author__ = "Carlos del-Castillo-Negrete"
 __copyright__ = "Carlos del-Castillo-Negrete"
 __license__ = "MIT"
 _logger = logging.getLogger(__name__)
 
-
 pd.options.display.float_format = "{:,.10f}".format
 logger = logging.getLogger()
-
 
 @contextmanager
 def timing(label: str):
@@ -1077,6 +1075,63 @@ def write_fort13(ds, f13_file):
       out_df = ds[cols].dropna('JN').to_dataframe()
       write_text_line(str(out_df.shape[0]), '', f13)
     out_df.to_csv(f13_file, sep=' ', mode='a', header=None)
+
+
+def gen_uniform_beta_fort13(
+    base_f13_path: str = "fort.13",
+    targ_dir: str = None,
+    name: str = "beta",
+    num_samples: int = 10,
+    domain: List[int]=[0.0, 2.0],
+):
+    """
+    Generate fort.13 files w/beta vals from uniform distribution
+
+    Parameters
+    ----------
+    base_f13_path : str, default='fort.13'
+        Path to base fort.13 file to modify beta values for
+    targ_dir : str, optional
+        Path to output directory. Defaults to current working directory.
+    name : str, default='beta'
+        Name to give to output directory. Final name will be in the
+        format {name}_{domain min}-{domain max}_u{num samples}
+    num_samples : int, default=10
+        Number of samples to take from a uniform distribution
+    domain : List[int], default=[0.0, 2.0]
+        Range for beta values.
+
+
+    Returns
+    ----------
+    targ_path : str
+        Path to directory containing all the seperate job directories
+        with individual fort.13 files
+
+    """
+
+    targ_dir = Path.cwd() if targ_dir is None else targ_dir
+    if not targ_dir.exists():
+        raise ValueError(f"target directory {str(targ_dir)} does not exist")
+    if not Path(base_f13_path).exists():
+        raise ValueError(f"Unable to find base fort.13 file {base_f13_path}")
+
+    targ_path = Path(
+        f"{str(targ_dir)}/{name}_{domain[0]:.1f}-{domain[1]:.1f}_u{num_samples}"
+    )
+    targ_path.mkdir(exist_ok=True)
+
+    beta_vals = np.random.uniform(domain[0], domain[1], size=num_samples)
+    f13 = read_fort13(base_f13_path)
+
+    for idx, b in enumerate(beta_vals):
+        f13["v0"][0] = b
+        job_name = f"beta-{idx}_{b:.2f}"
+        job_dir = targ_path / job_name
+        job_dir.mkdir(exist_ok=True)
+        write_fort13(f13, str(job_dir / "fort.13"))
+
+    return str(targ_path)
 
 
 def process_adcirc_configs(path, filt='fort.*', met_times=[]):

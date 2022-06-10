@@ -55,5 +55,6 @@ MANIFEST
 .venv*/
 .conda*/
 
-# Ignore data in notebooks directory (workspace)
+# Ignore data and images in notebooks directory (workspace)
 notebooks/data/*
+notebooks/images/*

@@ -19,12 +19,9 @@ fi
 
 log INFO "STARTING"
 
-log INFO "Arguments for Pylauncher run:"
 log INFO "Job Inputs : ${job_inputs}"
-
-log INFO "Parameters for Pylauncher run:"
 log INFO "Custom Modules : ${custom_modules}"
-log INFO "Pylauncher Input : ${pylauncher_input}"
+log INFO "Pylauncher Input Fname : ${pylauncher_input}"
 log INFO "Generator Args : ${generator_args}"
 
 # Load necessary modules - These are the modules required for all executed jobs.
