@@ -9,11 +9,8 @@ class ADCIRCSim(object):
     """Docstring for ADCIRCSim. """
 
     def __init__(self,
-            jm_id:str=None,
-            exec_system:str=None,
-            execs_path:str=None,
-            inputs_path:str=None,
-            storage_path:str=None,
+            name:str
+            
             user:str=None):
         """TODO: to be defined. """
 
@@ -23,3 +20,32 @@ class ADCIRCSim(object):
             self.jm = tjm.get_jm(jm_id)
 
 
+class TACCADCIRCSim(object):
+
+    """Class for running ADCIRC simulations on TACC resources"""
+
+    def __init__(self, jm_id, system:str=None):
+        """TODO: to be defined.
+
+        Parameters
+        ----------
+        jm_id : str
+            TACCJobManager ID to use to connect to TACC systems.
+        :system: TODO
+
+        """
+        self._jm_id = jm_id
+        self._system = system
+
+        if jm_id not in tjm.list_jms():
+            self.jm =  tjm.init_jm(cid, system, user)
+        else :
+            self.jm = tjm.get_jm(jm_id)
+
+
+    def _get_root_dir(self):
+        """Get root dir shared accross all TACC work systems"""
+
+
+
+        

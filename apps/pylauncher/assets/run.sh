@@ -25,9 +25,11 @@ log INFO "Pylauncher Input Fname : ${pylauncher_input}"
 log INFO "Generator Args : ${generator_args}"
 
 # Load necessary modules - These are the modules required for all executed jobs.
-log INFO "Loading modules python3 ${custom_modules}"
+log INFO "Loading modules python3 remora ${custom_modules}"
 module load python3 1>&2
+module load remora 1>&2
 module load ${custom_modules} 1>&2
+
 
 # Unzip job inptus directory into job directory
 log INFO "Unzipping job inputs directory"

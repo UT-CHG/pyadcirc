@@ -9,8 +9,8 @@
 # 	inputDirectory - Directory containing ADCIRC inputs
 # 	execsDirectory - Directory containing ADCIRC executables
 # 	writeProcesses - Number of write processe to use
-# 
-# Furthermore since assumed executing on TACC SLURM execution, we 
+#
+# Furthermore since assumed executing on TACC SLURM execution, we
 # use the following environment variables set by SLURM/TACC:
 # 	SLURM_TACC_CORES - Total number of processes available job
 
@@ -61,7 +61,7 @@ if [[ "$remora" -eq "1" ]]
 then
 	log INFO "Running ADCIRC with REMORA monitoring"
 	remora ibrun -np $CORES ./padcirc -W $WRITE_PROC >> output.eo.txt 2>&1
-elif
+else
 	log INFO "Running ADCIRC."
 	ibrun -np $CORES ./padcirc -W $WRITE_PROC >> output.eo.txt 2>&1
 fi

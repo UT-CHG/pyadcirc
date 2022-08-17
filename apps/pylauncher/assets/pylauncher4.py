@@ -639,11 +639,15 @@ class IbrunExecutor(Executor):
         pool = kwargs.pop("pool", None)
         pre_process = kwargs.pop("pre_process", None)
         post_process = kwargs.pop("post_process", None)
+        remora = kwargs.pop("remora", False)
         if pool is None:
             raise LauncherException("SSHExecutor needs explicit HostPool")
         wrapped_command = self.wrap(command)
         stdout = kwargs.pop("stdout", subprocess.PIPE)
         full_commandline = "ibrun -o %d -n %d %s" % (pool.offset, pool.extent, wrapped_command)
+        # Remora for gathering statistics on run
+        if remora:
+            full_commandline = "remora " full_commandline
         # Pre and post process commands not run in parallel
         if pre_process is not None:
             full_commandline = pre_process + ";" + full_commandline
@@ -779,6 +783,7 @@ class Task:
         self.command = command["command"]
         self.pre_process = command["pre_process"]
         self.post_process = command["post_process"]
+        self.remora = command["remora"]
         # make a default completion if needed
         self.completion = kwargs.pop("completion",None)
         self.taskid = kwargs.pop("taskid",0)
@@ -825,7 +830,10 @@ class Task:
             self.debug,prefix="Task")
         self.starttime = time.time()
         commandexecutor = self.pool.pool.commandexecutor
-        commandexecutor.execute(wrapped, pool=self.pool, pre_process=self.pre_process, post_process=self.post_process)
+        commandexecutor.execute(wrapped, pool=self.pool,
+                pre_process=self.pre_process,
+                post_process=self.post_process,
+                remora=self.remora)
         self.has_started = True
         DebugTraceMsg("started %d" % self.taskid,self.debug,prefix="Task")
 
@@ -977,18 +985,21 @@ class Commandline:
     It optionally contains the following parameters:
     * pre_process: a unix pre-process command, to be run before command
     * post_process: a unix post-process command, to be run after command
+    * remora: Flag indicating whether to wrap ibrun call with remora monitoring
     * id: a user-supplied task identifier
     """
 
-    def __init__(self, command, cores=1, **kwargs):
-        self.data = {'command' : command, "cores": int(cores), **kwargs}
+    def __init__(self, command, cores=1, pre_process=None, post_process=None, remora=False, **kwargs):
+        self.data = {'command' : command, "cores": int(cores),
+                     'pre_process': pre_process, 'post_process':post_process,
+                     'remora': remora, **kwargs}
 
     def __getitem__(self, ind):
         return self.data.get(ind)
 
     def __str__(self):
-        r = "command=<<%s>>, cores=%d, pre_process=<<%s>>, post_process=<<%s>>" \
-            % (self.data["command"], self.data["cores"], self.data["pre_process"], self.data["post_process"])
+        r = "command=<<%s>>, cores=%d, pre_process=<<%s>>, post_process=<<%s>>, remora=<<%s>>" \
+            % (self.data["command"], self.data["cores"], self.data["pre_process"], self.data["post_process"], self.data['remora'])
         return r
 
 
@@ -1086,8 +1097,10 @@ class FileCommandlineGenerator(CommandlineGenerator):
     :param filename: (required) name of the file with commandlines
     :param cores: (keyword, default 1) core count to be used for all commands
     :param pre_post_process: (keyword, default False) are pre-process and post-process commands per line?
+    :param remora: (keyword, default False) run resource monitoring (remora) on job?
     """
-    def __init__(self, filename, cores=1, pre_post_process=False, **kwargs):
+    def __init__(self, filename, cores=1, pre_post_process=False, remora=False,
+            **kwargs):
         if filename.endswith(".json"):
             commandlist = self._init_from_json(filename, cores=cores)
         else:

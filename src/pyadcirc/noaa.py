@@ -130,7 +130,7 @@ def get_station_data(station_id: int, start_date: str, end_date: str):
     -------
     water_level : xarray.DataArray
       xarray.DataArray with a `water_level` values over time for the given date
-      range
+      range, in meters.
 
     Examples
     --------
@@ -177,6 +177,15 @@ def get_station_data(station_id: int, start_date: str, end_date: str):
         ds = xa.DataArray([], coords={"time": []}, dims={"time": pd.to_datetime([])})
 
     # Store details about request made in attrs
-    ds.attrs = {"url": url, "params": params}
+    web_url = "https://tidesandcurrents.noaa.gov/waterlevels.html"
+    web_url += f"?id={station_id}&units=metric"
+    web_url += f"&bdate={start_date.strftime('%Y%m%d')}"
+    web_url += f"&edate={end_date.strftime('%Y%m%d')}"
+    web_url += "&timezone=GMT&datum=msl"
+    params.update({'api_url': url,
+                   'web_url': web_url,
+                   'description': 'NOAA/NOS/CO-OPS Observed Water Levels',
+                   'units': 'meters'})
+    ds.attrs = params
 
     return ds

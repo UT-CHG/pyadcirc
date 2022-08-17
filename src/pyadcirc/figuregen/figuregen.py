@@ -800,7 +800,6 @@ def fg_run(
             ret["docker"] = dock
         else:
             raise ValueError("Docker not found. Install docker.")
-
     else:
         raise NotImplementedError("Only docker engine supported.")
 
