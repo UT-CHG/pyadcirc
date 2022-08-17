@@ -647,7 +647,7 @@ class IbrunExecutor(Executor):
         full_commandline = "ibrun -o %d -n %d %s" % (pool.offset, pool.extent, wrapped_command)
         # Remora for gathering statistics on run
         if remora:
-            full_commandline = "remora " full_commandline
+            full_commandline = "remora " + full_commandline
         # Pre and post process commands not run in parallel
         if pre_process is not None:
             full_commandline = pre_process + ";" + full_commandline

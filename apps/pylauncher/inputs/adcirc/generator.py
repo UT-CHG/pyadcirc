@@ -13,7 +13,7 @@ if __name__ == "__main__":
   parser.add_argument("base_dir", type=str)
   parser.add_argument("execs_dir", type=str)
   parser.add_argument("--runs_dir", type=str, default=None)
-  parser.add_argument("--cores_per_job", type=str, default=4)
+  parser.add_argument("--cores_per_job", type=int, default=4)
   parser.add_argument("--write_proc_per_job", type=int, default=0)
   parser.add_argument("--num_samples", type=int, default=10)
   parser.add_argument("--range-low", type=float, default=0.0)

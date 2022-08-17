@@ -67,8 +67,8 @@ do
   if [ -e generator.sh ]
   then
     # Call generator if it exists script 
-    log INFO "Calling Generator Script"
-    ./generator.sh ${ITER} $SLURM_NPROCS $generator_args
+    log INFO "Calling Generator Script With arugments ${generator_args}"
+    ./generator.sh ${ITER} $SLURM_NPROCS ${generator_args}
     if [ $? -ne 0 ]
     then
       log ERROR "Generator script failed on iteration ${ITER}!"

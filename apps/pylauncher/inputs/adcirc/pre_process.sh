@@ -1,6 +1,6 @@
 #!/bin/bash
 # 
-# Shell Demo - Pre Process Script
+# PYLAUNCHER ADCIRC - Pre Process Script
 # Carlos del-Castillo-Negrete - cdelcastillo21@gmail.com
 # June 2021
 #

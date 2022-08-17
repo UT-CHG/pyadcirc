@@ -119,7 +119,7 @@ def generator(base_dir:str,
         f"{execs_dir} {run_proc} >> {log_file}")
 
     # Main ADCIRC command
-    main = f"./padcirc -W {write_proc_per_job} >> {log_file}"
+    main = f"{execs_dir}/padcirc -W {write_proc_per_job} >> {log_file}"
 
     # Post process command - For now does nothing
     post_process = (f"./post_process.sh {idx+1} >> {log_file}")

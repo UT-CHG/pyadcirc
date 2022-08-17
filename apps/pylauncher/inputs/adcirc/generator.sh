@@ -27,10 +27,15 @@ NP=$2
 log INFO "STARTING GENERATOR"
 log DEBUG "Current Directory: $(pwd)"
 
+log INFO "LOADING CONDA ENV"
+source /home1/06307/clos21/miniconda3/etc/profile.d/conda.sh
+conda activate adcirc
+log INFO "PYTHON PATH $(which python)"
+
 log INFO "Calling generator.py for iteration ${ITER} with $NP processes."
 log INFO "Additional arguments passed - ${@:3}"
 
-python3 generator.py $ITER $NP ${@:3}
+python generator.py $ITER $NP ${@:3}
 
 log INFO "GENERATOR FINISHED"
 
