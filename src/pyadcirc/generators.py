@@ -115,8 +115,8 @@ def generator(base_dir:str,
     log_file = f"logs/job_{idx+1}_{job_name}.log"
 
     # Pre-process command
-    pre_process = (f"./pre_process.sh {idx+1} {base_dir} {job_dir} ",
-        f"{execs_dir} {run_proc} >> {log_file}")
+    pre_process = ''.join([f"./pre_process.sh {idx+1} {base_dir} {job_dir} ",
+        f"{execs_dir} {run_proc} >> {log_file}"])
 
     # Main ADCIRC command
     main = f"{execs_dir}/padcirc -W {write_proc_per_job} >> {log_file}"

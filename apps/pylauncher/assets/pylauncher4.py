@@ -14,10 +14,35 @@ import subprocess
 import sys
 import time
 import hostlist3 as hs
+import logging
+from pathlib import Path
 
 # Globals
 pylauncherBarrierString = "__barrier__"
 
+# Temp dir to stash all pylauncher stuff
+PYLAUNCHER_TEMP_DIR = Path.cwd() / '.pylauncher'
+PYLAUNCHER_TEMP_DIR.mkdir(exist_ok=True)
+
+# TACC Systems
+TACC_SYSTEMS = [
+        "frontera",
+        "ls6",
+        "maverick",
+        "stampede",
+        "stampede2",
+        "stampede2-knl",
+        "stampede2-skx"]
+
+# create logger
+logger = logging.getLogger(__name__)
+logformat ='%(asctime)s | %(name)s | %(levelname)s | %(message)s'
+logging.basicConfig(
+    level=logging.DEBUG,
+    stream=sys.stdout,
+    format=logformat,
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
 
 def RandomID():
     global randomid
@@ -70,22 +95,12 @@ class LauncherException(Exception):
         return self.str
 
 
-debugtracefile = None
 def DebugTraceMsg(msg, sw=False, prefix=""):
-    global runtime, debugtracefile
+    """Print debug messages if necessary"""
     if not sw: return
-    if msg[0]=="\n":
-        print
-        msg = msg[1:]
-    longprefix = ""#"[t=%5.3f] " % time.time()-runtime
     if prefix!="":
-        longprefix += prefix+": "
-    for l in msg.split("\n"):
-        print(longprefix+l)
-        longprefix = len(longprefix)*" "
-    if debugtracefile is not None:
-        debugtracefile.write(msg+"\n")
-        os.fsync()
+        msg = f"{prefix} | {msg}"
+    logger.debug(msg)
 
 
 def HostName():
@@ -127,24 +142,27 @@ def JobId():
      ``HostName``): this should only return a number if we are actually in a job.
     """
     hostname = ClusterName()
-    if hostname=="ls4":
-        return os.environ["JOB_ID"]
-    elif hostname in ["ls6", "ls5","maverick","stampede","stampede2","stampede2-knl","stampede2-skx"]:
+    if hostname in TACC_SYSTEMS:
         return os.environ["SLURM_JOB_ID"]
     else:
         return None
 
 
 class HostList:
-    """Object describing a list of hosts. Each host is a dictionary
-    with a ``host`` and ``core`` field.
+    """
+    HostList
+
+    A list of hosts, with a ``host`` and ``core`` field. This is an iteratable
+    object; it yields the host/core dictionary objects.
 
     Arguments:
 
-    * list : list of hostname strings
-    * tag : something like ``.tacc.utexas.edu`` may be necessary to ssh to hosts in the list
-
-    This is an iteratable object; it yields the host/core dictionary objects.
+    Attributes
+    ----------
+    hostlist :
+        list of hostname strings
+    tag :
+        something like ``.tacc.utexas.edu``, indicating full path to host.
     """
 
     def __init__(self, hostlist=[], tag=""):
@@ -178,8 +196,8 @@ class HostList:
         return str(self.hostlist)
 
 class SLURMHostList(HostList):
-    def __init__(self,**kwargs):
-        HostList.__init__(self,**kwargs)
+    def __init__(self, hostlist=[], tag=""):
+        super().__init__(hostlist=hostlist, tag=tag)
         hlist_str = os.environ["SLURM_NODELIST"]
         p = int(os.environ["SLURM_NNODES"])
         N = int(os.environ["SLURM_NPROCS"])
@@ -189,7 +207,7 @@ class SLURMHostList(HostList):
             for i in range(int(n)):
                 self.append(h,i)
 
-def HostListByName(**kwargs):
+def HostListByName():
     """Give a proper hostlist. Currently this work for the following TACC hosts:
 
     * ``ls6``: Lonestar6, using SLURM
@@ -199,23 +217,16 @@ def HostListByName(**kwargs):
 
     We return a trivial hostlist otherwise.
     """
-    debugs = kwargs.pop("debug","")
-    debug = re.search("host",debugs)
     cluster = ClusterName()
-    if cluster=="ls6":
-        hostlist = SLURMHostList(tag=".ls6.tacc.utexas.edu",**kwargs)
-    elif cluster=="maverick":
-        hostlist = SLURMHostList(tag=".maverick.tacc.utexas.edu",**kwargs)
-    elif cluster=="stampede":
-        hostlist = SLURMHostList(tag=".stampede.tacc.utexas.edu",**kwargs)
-    elif cluster in ["stampede2","stampede2-knl","stampede2-skx"]:
-        hostlist = SLURMHostList(tag=".stampede2.tacc.utexas.edu",**kwargs)
+    if cluster in TACC_SYSTEMS:
+        hostlist = SLURMHostList(tag=f".{cluster}.tacc.utexas.edu")
     elif cluster=="mic":
         hostlist = HostList( ["localhost" for i in range(60)] )
     else:
         hostlist = HostList(hostlist=[HostName()])
-    if debug:
-        print("Hostlist on %s : %s" % (cluster,str(hostlist)))
+
+    logger.debug(f"Hostlist on {cluster} : {hostlist}")
+
     return hostlist
 
 
@@ -236,12 +247,9 @@ class HostPoolBase:
         anything derived from ``HostPoolBase`` will do a debug trace
     """
 
-    def __init__(self, cmnd_exec=None, workdir=None, debug_flags=""):
+    def __init__(self, cmnd_exec, workdir=None, debug_flags=""):
         self.nodes = []
-        if cmnd_exec is None:
-            self.commandexecutor = LocalExecutor(workdir=workdir)
-        else:
-            self.commandexecutor = cmnd_exec
+        self.commandexecutor = cmnd_exec
         self.debug = re.search("host", debug_flags)
 
     def append_node(self, host="localhost", core=0):
@@ -253,7 +261,6 @@ class HostPoolBase:
         else:
             node = Node(host, core, nodeid=len(self.nodes))
         self.nodes.append(node)
-        self.commandexecutor.setup_on_node(node)
 
     def __len__(self):
         return len(self.nodes)
@@ -279,6 +286,8 @@ class HostPoolBase:
     def request_nodes(self, request):
         """Request a number of nodes; this returns a HostLocator object"""
         DebugTraceMsg("request %d nodes" % request, self.debug, prefix="Host")
+        logging.debug(f'request {request}')
+
         start = 0;
         found = False
         while not found:
@@ -358,17 +367,11 @@ class HostPool(HostPoolBase):
 
     :param nhosts: the number of slots in the pool; this will use the localhost
     :param hostlist: HostList object; this takes preference over the previous option
-    :param commandexecutor: (optional) a prefixer routine, by default LocalExecutor
+    :param commandexecutor: (optional) a prefixer routine, by default
     """
     def __init__(self, cmnd_exec=None, workdir=None, debug_flags="", hostlist=None, nhosts=None):
-        if workdir is None:
-            executor = LocalExecutor()
-        else:
-            executor = LocalExecutor(workdir=workdir)
-
 
         super().__init__(cmnd_exec=cmnd_exec, workdir=workdir, debug_flags=debug_flags)
-
         if hostlist is not None and not isinstance(hostlist,(HostList)):
             raise LauncherException("hostlist argument needs to be derived from HostList")
         if hostlist is not None:
@@ -395,35 +398,6 @@ class HostPool(HostPoolBase):
         DebugTraceMsg("Releasing nodes",self.debug,prefix="Host")
         for node in self:
             self.commandexecutor.release_from_node(node)
-
-
-class LocalHostPool(HostPool):
-    """A host pool based on just the localhost, using the ``LocalExecutor``. This is for testing purposes.
-
-    :param nhosts: (keyword, optional, default=1) number of times the localhost should be listed
-    :param workdir: (keyword, optional) workdir for the commandexecutor
-    """
-    def __init__(self,**kwargs):
-        nhosts = kwargs.pop("nhosts",1)
-        self.debug = kwargs.pop("debug","")
-        self.workdir=kwargs.pop("workdir",MakeRandomDir())
-        HostPool.__init__(
-            self, nhosts=nhosts,workdir=self.workdir,
-            commandexecutor=LocalExecutor(
-                debug=self.debug,workdir=self.workdir,
-                #workdir=kwargs.pop("workdir",None),
-                force_workdir=kwargs.pop("force_workdir",False)),
-            debug=self.debug,**kwargs)
-
-
-class OneNodePool(HostPoolBase):
-    """This class is mostly for testing: it allows for a node to function
-    as a host pool so that one can start a task on it."""
-    def __init__(self,node,**kwargs):
-        HostPoolBase.__init__(self,**kwargs)
-        if not isinstance(node,(Node)):
-            raise LauncherException("Invalid node type <<%s>>" % node)
-        self.append_node(node)
 
 
 class HostLocator:
@@ -468,69 +442,58 @@ class HostLocator:
                (self.extent, self.offset, str([str(self[i]) for i in range(self.extent)]))
 
 
-class Executor:
-    """Class for starting a commandline on some actual computing device.
+class IbrunExecutor():
+    """
+    IbrunExector
 
-    All derived classes need to define a ``execute`` method.
+    An class executing ibrun commands on TACC resources. Uses shift/offset
+    version of ibrun that is in use at TACC.
 
+    :param pool: (required) ``HostLocator`` object
+    :param stdout: (optional) a file that is open for writing; by default ``subprocess.PIPE`` is used
     :param catch_output: (keyword, optional, default=True) state whether command output gets caught, or just goes to stdout
     :param workdir: (optional, default="pylauncher_tmpdir_exec") directory for exec and out files
     :param debug: (optional) string of debug modes; include "exec" to trace this class
 
     Important note: the ``workdir`` should not already exist. You have to remove it yourself.
     """
-    default_workdir = "pylauncher_tmpdir_exec"
     execstring = "exec"
     outstring = "out"
 
-    def __init__(self,**kwargs):
-        self.catch_output = kwargs.pop("catch_output",True)
-        if self.catch_output:
-            self.append_output = kwargs.pop("append_output",None)
-        self.debugs = kwargs.pop("debug","")
-        self.debug = re.search("exec",self.debugs)
-        self.count = 0
-        workdir = kwargs.pop("workdir",None)
-        if workdir is None:
-            self.workdir = self.default_workdir
-        else: self.workdir = workdir
-        force_workdir = kwargs.pop("force_workdir",False)
-        if self.workdir[0]!="/":
-            self.workdir = os.getcwd()+"/"+self.workdir
-        DebugTraceMsg("Using executor workdir <<%s>>" % self.workdir,
-                     self.debug,prefix="Exec")
-        if os.path.isfile(self.workdir):
-            raise LauncherException(
-                "Serious problem creating executor workdir <<%s>>" % self.workdir)
-        elif not os.path.isdir(self.workdir):
-            os.mkdir(self.workdir)
-            # if force_workdir:
-            #     os.system("/bin/rm -rf %s" % self.workdir)
-            # else:
-            #     raise LauncherException(
-            #         "I will not reuse an executor workdir <<%s>>" % self.workdir)
-        if not self.workdir_is_safe():
-            raise LauncherException("Unsafe working dir <<%s>>; pls remove" % self.workdir)
-        if len(kwargs)>0:
-            raise LauncherException("Unprocessed Executor args: %s" % str(kwargs))
+    def __init__(self,
+            catch_output=True,
+            append_output=None,
+            debug_flags="",
+            workdir=PYLAUNCHER_TEMP_DIR,
+            **kwargs):
 
-    def workdir_is_safe(self):
-        """Test that the working directory is (in) a subdirectory of the cwd"""
-        here = os.getcwd(); os.chdir(self.workdir); there = os.getcwd(); os.chdir(here)
-        return re.match(here,there) and not here==there
+        self.catch_output = catch_output
+        if self.catch_output:
+            self.append_output = append_output
+
+        self.debugs = debug_flags
+        self.debug = re.search("exec", self.debugs)
+        self.count = 0
+
+        self.workdir = Path(workdir) if not type(workdir)==Path else workdir
+        self.workdir = self.workdir.resolve()
+        if self.workdir.is_file():
+            # Make sure workdir is note file
+            raise LauncherException(
+                f"Workdir specified exists as a file <<{self.workdir}>>")
+        if not Path.cwd() in self.workdir.parents:
+            # Make sure workdir is child of cwd
+            raise LauncherException(f"<<{self.workdir}>> must be inside cwd")
+        self.workdir.mkdir(exist_ok=True)
+
+        DebugTraceMsg(f"Using executor workdir <<{self.workdir}>>",
+                self.debug,prefix="Exec")
+
+        self.popen_object = None
 
     def cleanup(self):
-        if self.workdir_is_safe():
-            shutil.rmtree(self.workdir)
-
-    def setup_on_node(self,node):
-        return
-
-    def release_from_node(self,node):
-        return
-
-    def end_execution(self):
-        return
+        if Path.cwd() in self.workdir.parents:
+            shutil.rmtree(str(self.workdir))
 
     def smallfilenames(self):
         execfilename = "%s/%s%d" % (self.workdir,self.execstring,self.count)
@@ -544,7 +507,7 @@ class Executor:
         self.count += 1
         return execfilename,execoutname
 
-    def wrap(self,command):
+    def wrap(self, command, pool, pre_process=None, post_process=None):
         """Take a commandline, write it to a small file, and return the
         commandline that sources that file
         """
@@ -552,8 +515,25 @@ class Executor:
         if os.path.isfile(execfilename):
             raise LauncherException("exec file already exists <<%s>>" % execfilename)
         f = open(execfilename,"w")
-        f.write("#!/bin/bash\n"+command+"\n")
-        f.close()
+        f.write("#!/bin/bash\n\n")
+        if pre_process is not None:
+            f.write(f"{pre_process}\n")
+            f.write("if [ $? -ne 0 ]\n")
+            f.write("then\n")
+            f.write("  exit 1\n")
+            f.write("fi\n")
+        f.write(f"ibrun -o {pool.offset} -n {pool.extent}\n")
+        f.write("if [ $? -ne 0 ]\n")
+        f.write("then\n")
+        f.write("  exit 1\n")
+        f.write("fi\n")
+        if post_process is not None:
+            f.write(f"{post_process}\n")
+            f.write("if [ $? -ne 0 ]\n")
+            f.write("then\n")
+            f.write("  exit 1\n")
+            f.write("fi\n")
+            f.close()
         os.chmod(execfilename,stat.S_IXUSR++stat.S_IXGRP+stat.S_IXOTH+\
                      stat.S_IWUSR++stat.S_IWGRP+stat.S_IWOTH+\
                      stat.S_IRUSR++stat.S_IRGRP+stat.S_IROTH)
@@ -570,79 +550,32 @@ class Executor:
         DebugTraceMsg("file <<%s>>\ncontains <<%s>>\nnew commandline <<%s>>" % \
                           (execfilename,command,wrappedcommand),
                       self.debug,prefix="Exec")
+        pdb.set_trace()
         return wrappedcommand
 
-    def execute(self, command, **kwargs):
-        raise LauncherException("Should not call default execute")
-
-    def terminate(self):
-        return
-
-
-class LocalExecutor(Executor):
-    """Execute a commandline locally, in the background.
-
-    :param prefix: (keyword, optional, default null string) for recalcitrant shells, the possibility to specify '/bin/sh' or so
-    """
-    def __init__(self, **kwargs):
-        self.prefix = kwargs.pop("prefix", "")
-        Executor.__init__(self, **kwargs)
-        DebugTraceMsg("Created local Executor", self.debug, prefix="Exec")
-
-    def execute(self, command, **kwargs):
-        wrapped = self.wrap(command)
-        pre_process = kwargs.pop("pre_process", None)
-        post_process = kwargs.pop("post_process", None)
-        full_commandline = "%s%s & " % (self.prefix,wrapped)
-        if pre_process is not None:
-            full_commandline = pre_process + ";" + full_commandline
-        if post_process is not None:
-            full_commandline = full_commandline + ";" + post_process
-        DebugTraceMsg("subprocess execution of:\n<<%s>>" % full_commandline, self.debug,prefix="Exec")
-        p = subprocess.Popen(full_commandline, shell=True, env=os.environ, stderr=subprocess.STDOUT)
-        # !!! why that os.environ and the env prefix?
-
-
-class IbrunExecutor(Executor):
-    """An Executor derived class for the shift/offset version of ibrun
-    that is in use at TACC
-
-    :param pool: (required) ``HostLocator`` object
-    :param stdout: (optional) a file that is open for writing; by default ``subprocess.PIPE`` is used
-    """
-    def __init__(self,**kwargs):
-        catch_output = kwargs.pop("catch_output","foo")
-        if catch_output!="foo":
-            raise LauncherException("IbrunExecutor does not take catch_output parameter")
-        Executor.__init__(self,catch_output=False,**kwargs)
-        self.popen_object = None
-
-    def execute(self, command, **kwargs):
-        """Much like ``SSHExecutor.execute()``, except that it prefixes
+    def execute(self, command, pool, pre_process=None, post_process=None):
+        """
+        Execute a command on subprocesses.
+        Much like ``SSHExecutor.execute()``, except that it prefixes
         with ``ibrun -n -o``
         """
-        pool = kwargs.pop("pool", None)
-        pre_process = kwargs.pop("pre_process", None)
-        post_process = kwargs.pop("post_process", None)
-        if pool is None:
-            raise LauncherException("SSHExecutor needs explicit HostPool")
-        wrapped_command = self.wrap(command)
-        stdout = kwargs.pop("stdout", subprocess.PIPE)
-        full_commandline = "ibrun -o %d -n %d %s" % (pool.offset, pool.extent, wrapped_command)
+        command = self.wrap(
+                command,
+                pool,
+                pre_process=pre_process,
+                post_process=post_process)
         # Pre and post process commands not run in parallel
-        if pre_process is not None:
-            full_commandline = f"{pre_process}; {full_commandline}"
-        if post_process is not None:
-            full_commandline = f"{full_commandline}; {post_process}"
-        DebugTraceMsg(f"executed commandline: <<{full_commandline}>>",
-                self.debug, prefix="Exec")
-        p = subprocess.Popen(full_commandline, shell=True, stdout=stdout)
+        p = subprocess.Popen(
+                command,
+                shell=True,
+                stdout=subprocess.PIPE)
         self.popen_object = p
+        DebugTraceMsg(f"(process, command) : {p.pid} : <<{command}>>",
+                self.debug, prefix="Exec")
 
     def terminate(self):
         if self.popen_object is not None:
             self.popen_object.terminate()
-
 
 class Node:
     """A abstract object for a slot to execute a job. Most of the time
@@ -783,7 +716,7 @@ class Task:
         DebugTraceMsg("created task <<%s>>" % str(self),self.debug,prefix="Task")
         self.nodes = None
 
-    def start_on_nodes(self,**kwargs):
+    def start_on_nodes(self, pool, starttick=0, **kwargs):
         """Start the task.
 
         :param pool: HostLocator object (keyword, required) : this describes the nodes on which to start the task
@@ -792,15 +725,7 @@ class Task:
         This sets ``self.startime`` to right before the execution begins. We do not keep track
         of the endtime, but instead set ``self.runningtime`` in the ``hasCompleted`` routine.
         """
-        self.pool = kwargs.pop("pool",None)
-        self.starttick = kwargs.pop("starttick",0)
-        if self.pool is None:
-            self.pool = LocalHostPool(nhosts=self.size,debug=self.debugs
-                                      ).request_nodes(self.size)
-        elif isinstance(self.pool,(Node)):
-            if self.size>1:
-                raise LauncherException("Can not start size=%d on sing Node" % self.size)
-            self.pool = OneNodePool( self.pool,debug=self.debugs ).request_nodes(self.size)
+        self.pool = pool
         if not isinstance(self.pool,(HostLocator)):
             raise LauncherException("Invalid locator object")
         if len(kwargs)>0:
@@ -813,7 +738,10 @@ class Task:
             self.debug,prefix="Task")
         self.starttime = time.time()
         commandexecutor = self.pool.pool.commandexecutor
-        commandexecutor.execute(wrapped, pool=self.pool, pre_process=self.pre_process, post_process=self.post_process)
+        commandexecutor.execute(wrapped,
+                pool=self.pool,
+                pre_process=self.pre_process,
+                post_process=self.post_process)
         self.has_started = True
         DebugTraceMsg("started %d" % self.taskid,self.debug,prefix="Task")
 
@@ -892,7 +820,7 @@ class TaskQueue:
             DebugTraceMsg(f"starting task <{t}> on locator <{locator}>",
                           self.debug,
                           prefix="Queue")
-            t.start_on_nodes(pool=locator, starttick=starttick)
+            t.start_on_nodes(locator, starttick=starttick)
             hostpool.occupyNodes(locator, t.taskid)
             self.queue.remove(t)
             self.running.append(t)
@@ -1438,11 +1366,15 @@ def IbrunLauncher(commandfile,
     :param debug: debug types string (optional, keyword)
     """
     jobid = JobId()
-    workdir = f"pylauncher_tmp{jobid}" if workdir is None else workdir
+    workdir = f".pylauncher_tmp{jobid}" if workdir is None else workdir
+    logging.info(f'Initializing ibrun Launcher job {jobid} at {workdir}')
+
+    hostlist = HostListByName()
+    pdb.set_trace()
 
     executor = IbrunExecutor(workdir=workdir, debug=debug)
     hostpool = HostPool(
-            hostlist=HostListByName(debug=debug),
+            hostlist=hostlist,
             cmnd_exec=executor,
             debug_flags=debug)
     command_gen = FileCommandlineGenerator(
@@ -1458,7 +1390,6 @@ def IbrunLauncher(commandfile,
             command_gen,
             completion=completion,
             debug=debug)
-    pdb.set_trace()
 
     job = LauncherJob(
         hostpool=hostpool,
