@@ -522,7 +522,7 @@ class IbrunExecutor():
             f.write("then\n")
             f.write("  exit 1\n")
             f.write("fi\n")
-        f.write(f"ibrun -o {pool.offset} -n {pool.extent}\n")
+        f.write(f"ibrun -o {pool.offset} -n {pool.extent} {command}\n")
         f.write("if [ $? -ne 0 ]\n")
         f.write("then\n")
         f.write("  exit 1\n")
