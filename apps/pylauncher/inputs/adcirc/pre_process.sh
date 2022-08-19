@@ -1,11 +1,11 @@
 #!/bin/bash
-# 
+#
 # PYLAUNCHER ADCIRC - Pre Process Script
 # Carlos del-Castillo-Negrete - cdelcastillo21@gmail.com
 # June 2021
 #
 # Pre-process script for shell demo. Gets passed in job number and creates a run directory
-# for that job. 
+# for that job.
 
 DEBUG=false
 
@@ -17,7 +17,7 @@ EXECS_DIR=$4
 RUN_PROC=$5
 
 log () {
-  echo "$(date) | PRE_PROCESS | ${1} | ${2}" 
+  echo "$(date) | PRE_PROCESS | ${1} | ${2}"
 }
 
 if [ "$DEBUG" = true ] ; then
@@ -37,6 +37,7 @@ module load netcdf
 
 # Move base inputs to current (job) directory
 log INFO "Copying base inputs from ${BASE_INPUTS}"
+cd $RUN_DIR
 ln -sf ${BASE_INPUTS}/* .
 
 # Move job inputs to current (job) directory
@@ -48,7 +49,7 @@ log INFO "Copying adcirc executables from ${EXECS_DIR}"
 ln -sf ${EXECS_DIR}/adcprep .
 ln -sf ${EXECS_DIR}/padcirc .
 
-# Run ADCPREP 
+# Run ADCPREP
 log INFO "Running ADCPREP - partmesh for ${RUN_PROC} compute processes"
 printf "${RUN_PROC}\n1\nfort.14\n" | adcprep
 

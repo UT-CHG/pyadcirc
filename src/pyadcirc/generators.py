@@ -112,17 +112,17 @@ def generator(base_dir:str,
   for idx, job in enumerate(job_dirs):
     job_dir = job.resolve()
     job_name = job.name
-    log_file = f"logs/job_{idx+1}_{job_name}.log"
+    adcirc_log_file = f"logs/adcirc_{idx+1}_{job_name}.log"
 
     # Pre-process command
     pre_process = ''.join([f"./pre_process.sh {idx+1} {base_dir} {job_dir} ",
-        f"{execs_dir} {run_proc} >> {log_file}"])
+        f"{execs_dir} {run_proc}"])
 
     # Main ADCIRC command
-    main = f"./padcirc -W {write_proc_per_job} >> {log_file}"
+    main = f"cd {job_dir}; ./padcirc -W {write_proc_per_job} >> {log_file}"
 
     # Post process command - For now does nothing
-    post_process = (f"./post_process.sh {idx+1} >> {log_file}")
+    post_process = (f"./post_process.sh {idx+1}")
 
     job_configs.append({"cores": cores_per_job,
            "main": main,

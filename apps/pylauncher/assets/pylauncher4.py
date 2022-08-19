@@ -16,13 +16,10 @@ import time
 import hostlist3 as hs
 import logging
 from pathlib import Path
+import tempfile
 
-# Globals
-pylauncherBarrierString = "__barrier__"
-
-# Temp dir to stash all pylauncher stuff
-PYLAUNCHER_TEMP_DIR = Path.cwd() / '.pylauncher'
-PYLAUNCHER_TEMP_DIR.mkdir(exist_ok=True)
+# Flags, all possible are: job, host, task, exec
+DEBUG_FLAGS = "job+host+task+exec+cmd"
 
 # TACC Systems
 TACC_SYSTEMS = [
@@ -43,28 +40,6 @@ logging.basicConfig(
     format=logformat,
     datefmt="%Y-%m-%d %H:%M:%S"
 )
-
-def RandomID():
-    global randomid
-    randomid += 7
-    return randomid
-
-
-def RandomDir():
-    return "./pylauncher_tmpdir%d" % RandomID()
-
-
-def MakeRandomDir():
-    dirname = RandomDir()
-    print("using random dir:",dirname)
-    try:
-        os.makedirs(dirname,exist_ok=True)
-    except OSError:
-        if not os.path.isdir(dirname):
-            raise
-    #if not os.path.isdir(dirname):
-    #os.mkdir(dirname)
-    return dirname
 
 
 def CompactIntList(intlist):
@@ -94,13 +69,18 @@ class LauncherException(Exception):
     def __str__(self):
         return self.str
 
+def set_debug_flags(flags):
+    """Set globla debug flags"""
+    global DEBUG_FLAGS
+    if flags is not None:
+        DEBUG_FLAGS = flags
+        logger.info(f"Set debug flags to {flags}")
 
-def DebugTraceMsg(msg, sw=False, prefix=""):
+
+def debug_msg(msg, prefix=""):
     """Print debug messages if necessary"""
-    if not sw: return
-    if prefix!="":
-        msg = f"{prefix} | {msg}"
-    logger.debug(msg)
+    if prefix in DEBUG_FLAGS:
+        logger.debug(f"{prefix} : {msg}")
 
 
 def HostName():
@@ -120,32 +100,15 @@ def ClusterName():
         return system
 
     # name detection by splitting TACC hostname
-    longname = HostName(); namesplit = longname.split(".")
-    # case: mic on stampede
+    longname = HostName()
+    namesplit = longname.split(".")
     nodesplit = namesplit[0].split("-")
-    if len(nodesplit)==3 and nodesplit[2] in ["mic0","mic1"]:
-        return "mic"
-    # case: tacc cluster node
-    if re.match("nid[0-9]",namesplit[0]):
-        return "ls5"
-    elif "tacc" in namesplit:
-        if len(namesplit)>1 and re.match("c[0-9]",namesplit[0]):
-            return namesplit[1]
-        else: return None
-    # case: unknown
-    return None
-
-
-def JobId():
-    """This function is installation dependent: it inspects the environment variable
-    that holds the job ID, based on the actual name of the host (see
-     ``HostName``): this should only return a number if we are actually in a job.
-    """
-    hostname = ClusterName()
-    if hostname in TACC_SYSTEMS:
-        return os.environ["SLURM_JOB_ID"]
+    if len(namesplit)>1 and re.match("c[0-9]",namesplit[0]):
+        return namesplit[1]
     else:
         return None
+
+    return None
 
 
 class HostList:
@@ -193,7 +156,9 @@ class HostList:
             yield h
 
     def __str__(self):
-        return str(self.hostlist)
+        unique_hosts = set([x['host'] for x in self.hostlist])
+        hostlist = [(host,CompactIntList([y['core'] for y in self.hostlist if y['host'] in host])) for host in unique_hosts]
+        return str(hostlist)
 
 class SLURMHostList(HostList):
     def __init__(self, hostlist=[], tag=""):
@@ -230,27 +195,52 @@ def HostListByName():
     return hostlist
 
 
-class HostPoolBase:
+class HostPool():
     """
-    Host Pool Base Class
+    Host Pool Class
 
     Defines a set of nodes to execute jobs on.
 
     Parameters
     ----------
-    cmnd_exec: optional
-        The ``Executor`` object for this host pool
-    workdir: str, optional
-        The workdir for the command executor
-    debug_flags: str, optional
-        a string of debug types; if this contains 'host',
-        anything derived from ``HostPoolBase`` will do a debug trace
     """
 
-    def __init__(self, cmnd_exec, workdir=None, debug_flags=""):
+    """A structure to manage a bunch of Node objects.
+    The main internal object is the ``nodes`` member, which
+    is a list of Node objects.
+
+    :param nhosts: the number of slots in the pool; this will use the localhost
+    :param hostlist: HostList object; this takes preference over the previous option
+    """
+    def __init__(self, hostlist=None, nhosts=None):
         self.nodes = []
-        self.commandexecutor = cmnd_exec
-        self.debug = re.search("host", debug_flags)
+        if hostlist is not None and not isinstance(hostlist,(HostList)):
+            raise LauncherException("hostlist argument needs to be derived from HostList")
+        if hostlist is not None:
+            debug_msg(f"Making hostpool on {hostlist}",prefix="host")
+            nhosts = len(hostlist)
+            for h in hostlist:
+                self.append_node(host=h['host'],core = h['core'])
+        elif nhosts is not None:
+            debug_msg(f"Making hostpool size {nhosts} on localhost",
+                    prefix="host")
+            localhost = HostName()
+            hostlist = [ localhost for i in range(nhosts) ]
+            for i in range(nhosts):
+                self.append_node(host=localhost)
+        else:
+            raise LauncherException("HostPool creation needs n or list")
+
+        debug_msg(f"Created host pool from <<{hostlist}>>",prefix="host")
+
+    def __len__(self):
+        return len(self.nodes)
+
+    def __getitem__(self, i):
+        return self.nodes[i]
+
+    def hosts(self, pool):
+        return [self[i] for i in pool]
 
     def append_node(self, host="localhost", core=0):
         """Create a new item in this pool by specifying either a Node object
@@ -261,15 +251,6 @@ class HostPoolBase:
         else:
             node = Node(host, core, nodeid=len(self.nodes))
         self.nodes.append(node)
-
-    def __len__(self):
-        return len(self.nodes)
-
-    def __getitem__(self, i):
-        return self.nodes[i]
-
-    def hosts(self, pool):
-        return [self[i] for i in pool]
 
     def unique_hostnames(self, pool=None):
         """Return a list of unique hostnames. In general each hostname appears
@@ -285,7 +266,7 @@ class HostPoolBase:
 
     def request_nodes(self, request):
         """Request a number of nodes; this returns a HostLocator object"""
-        DebugTraceMsg("request %d nodes" % request, self.debug, prefix="Host")
+        debug_msg(f"request {request} nodes", prefix="host")
         logging.debug(f'request {request}')
 
         start = 0;
@@ -300,10 +281,10 @@ class HostPoolBase:
                     break
         if found:
             locator = HostLocator(pool=self, offset=start, extent=request)
-            DebugTraceMsg("returning <<%s>>" % str(locator), self.debug, prefix="Host")
+            debug_msg(f"returning <<{locator}>>", prefix="host")
             return locator
         else:
-            DebugTraceMsg("could not locate", self.debug, prefix="Host")
+            debug_msg("could not locate", prefix="host")
             return None
 
     def occupyNodes(self, locator, taskid):
@@ -314,8 +295,7 @@ class HostPoolBase:
         * taskid : like the man says
         """
         nodenums = range(locator.offset, locator.offset + locator.extent)
-        DebugTraceMsg("occupying nodes %s with %d" % (str(nodenums), taskid),
-                      self.debug, prefix="Host")
+        debug_msg(f"occupying nodes {nodenums} with {taskid}", prefix="host")
         for n in nodenums:
             self[n].occupyWithTask(taskid)
 
@@ -324,18 +304,12 @@ class HostPoolBase:
         done = False
         for n in self.nodes:
             if n.taskid == taskid:
-                DebugTraceMsg("releasing %s, core %s"
-                              % (str(n.hostname), str(n.core)),
-                              self.debug, prefix="Host")
+                debug_msg(f"releasing {n.hostname}, core {n.core}", prefix="host")
                 n.release();
                 done = True
         if not done:
             raise LauncherException("Could not find nodes associated with id %s"
                                     % str(taskid))
-
-    def release(self):
-        """If the executor opens ssh connections, we want to close them cleanly."""
-        self.commandexecutor.terminate()
 
     def final_report(self):
         """Return a string that reports how many tasks were run on each node."""
@@ -360,51 +334,10 @@ avg: %d
         return hostlist
 
 
-class HostPool(HostPoolBase):
-    """A structure to manage a bunch of Node objects.
-    The main internal object is the ``nodes`` member, which
-    is a list of Node objects.
-
-    :param nhosts: the number of slots in the pool; this will use the localhost
-    :param hostlist: HostList object; this takes preference over the previous option
-    :param commandexecutor: (optional) a prefixer routine, by default
-    """
-    def __init__(self, cmnd_exec=None, workdir=None, debug_flags="", hostlist=None, nhosts=None):
-
-        super().__init__(cmnd_exec=cmnd_exec, workdir=workdir, debug_flags=debug_flags)
-        if hostlist is not None and not isinstance(hostlist,(HostList)):
-            raise LauncherException("hostlist argument needs to be derived from HostList")
-        if hostlist is not None:
-            if self.debug:
-                print("Making hostpool on %s" % str(hostlist))
-            nhosts = len(hostlist)
-            for h in hostlist:
-                self.append_node(host=h['host'],core = h['core'])
-        elif nhosts is not None:
-            if self.debug:
-                print("Making hostpool size %d on localhost" % nhosts)
-            localhost = HostName()
-            hostlist = [ localhost for i in range(nhosts) ]
-            for i in range(nhosts):
-                self.append_node(host=localhost)
-        else:
-            raise LauncherException("HostPool creation needs n or list")
-
-        DebugTraceMsg("Created host pool from <<%s>>" % str(hostlist),self.debug,prefix="Host")
-
-    def __del__(self):
-        """The ``SSHExecutor`` class creates a permanent ssh connection,
-        which we try to release by this mechanism."""
-        DebugTraceMsg("Releasing nodes",self.debug,prefix="Host")
-        for node in self:
-            self.commandexecutor.release_from_node(node)
-
-
 class HostLocator:
     """A description of a subset from a HostPool. A locator
     object is typically created when a task asks for a set of nodes
-    from a HostPool. Thus, a locator inherits the executor
-    from the host pool from which it is taken.
+    from a HostPool.
 
     The only locator objects allowed at the moment are consecutive subsets.
 
@@ -461,60 +394,24 @@ class IbrunExecutor():
     outstring = "out"
 
     def __init__(self,
-            catch_output=True,
-            append_output=None,
-            debug_flags="",
-            workdir=PYLAUNCHER_TEMP_DIR,
+            workdir,
+            log=True,
             **kwargs):
 
-        self.catch_output = catch_output
-        if self.catch_output:
-            self.append_output = append_output
+        self.workdir = workdir
+        self.logfile = self.workdir / 'log'
+        self.errfile = self.workdir / 'err'
+        self.execfile = self.workdir / 'exec'
 
-        self.debugs = debug_flags
-        self.debug = re.search("exec", self.debugs)
-        self.count = 0
-
-        self.workdir = Path(workdir) if not type(workdir)==Path else workdir
-        self.workdir = self.workdir.resolve()
-        if self.workdir.is_file():
-            # Make sure workdir is note file
-            raise LauncherException(
-                f"Workdir specified exists as a file <<{self.workdir}>>")
-        if not Path.cwd() in self.workdir.parents:
-            # Make sure workdir is child of cwd
-            raise LauncherException(f"<<{self.workdir}>> must be inside cwd")
-        self.workdir.mkdir(exist_ok=True)
-
-        DebugTraceMsg(f"Using executor workdir <<{self.workdir}>>",
-                self.debug,prefix="Exec")
-
+        self.log = log
+        debug_msg(f"Using executor workdir <<{self.workdir}>>", prefix="exec")
         self.popen_object = None
 
-    def cleanup(self):
-        if Path.cwd() in self.workdir.parents:
-            shutil.rmtree(str(self.workdir))
-
-    def smallfilenames(self):
-        execfilename = "%s/%s%d" % (self.workdir,self.execstring,self.count)
-        if self.catch_output:
-            if self.append_output is not None:
-                execoutname = self.append_output
-            else:
-                execoutname =  "%s/%s%d" % (self.workdir,self.outstring,self.count)
-        else:
-            execoutname = ""
-        self.count += 1
-        return execfilename,execoutname
-
-    def wrap(self, command, pool, pre_process=None, post_process=None):
+    def wrap(self, command, pool, cdir=None, pre_process=None, post_process=None):
         """Take a commandline, write it to a small file, and return the
         commandline that sources that file
         """
-        execfilename,execoutname = self.smallfilenames()
-        if os.path.isfile(execfilename):
-            raise LauncherException("exec file already exists <<%s>>" % execfilename)
-        f = open(execfilename,"w")
+        f = open(self.execfile,"w")
         f.write("#!/bin/bash\n\n")
         if pre_process is not None:
             f.write(f"{pre_process}\n")
@@ -522,7 +419,12 @@ class IbrunExecutor():
             f.write("then\n")
             f.write("  exit 1\n")
             f.write("fi\n")
+        if cdir is not None:
+            f.write(f"cd {cdir}\n")
+            f.write(f"cwd=$(pwd)\n")
         f.write(f"ibrun -o {pool.offset} -n {pool.extent} {command}\n")
+        if cdir is not None:
+            f.write(f"cd $cwd\n")
         f.write("if [ $? -ne 0 ]\n")
         f.write("then\n")
         f.write("  exit 1\n")
@@ -534,44 +436,35 @@ class IbrunExecutor():
             f.write("  exit 1\n")
             f.write("fi\n")
             f.close()
-        os.chmod(execfilename,stat.S_IXUSR++stat.S_IXGRP+stat.S_IXOTH+\
+        os.chmod(self.execfile,stat.S_IXUSR++stat.S_IXGRP+stat.S_IXOTH+\
                      stat.S_IWUSR++stat.S_IWGRP+stat.S_IWOTH+\
                      stat.S_IRUSR++stat.S_IRGRP+stat.S_IROTH)
-        if self.catch_output:
-            if self.append_output is not None:
-                pipe = ">>"
-                #execoutname = self.append_output
-            else:
-                pipe = ">"
-                #execoutname =  "%s/%s%d" % (self.workdir,self.outstring,self.count)
-            wrappedcommand = "%s %s %s 2>&1" % (execfilename,pipe,execoutname)
-        else:
-            wrappedcommand = execfilename
-        DebugTraceMsg("file <<%s>>\ncontains <<%s>>\nnew commandline <<%s>>" % \
-                          (execfilename,command,wrappedcommand),
-                      self.debug,prefix="Exec")
-        pdb.set_trace()
-        return wrappedcommand
 
-    def execute(self, command, pool, pre_process=None, post_process=None):
+        new_command = f"{self.execfile} > {self.logfile} 2> {self.errfile}"
+        debug_msg(f"new command stored in : {self.execfile}", prefix="exec")
+        debug_msg(f"new command: {new_command}", prefix="exec")
+
+        return new_command
+
+    def execute(self, command, pool):
         """
         Execute a command on subprocesses.
         Much like ``SSHExecutor.execute()``, except that it prefixes
         with ``ibrun -n -o``
         """
         command = self.wrap(
-                command,
+                command["command"],
                 pool,
-                pre_process=pre_process,
-                post_process=post_process)
+                cdir=command["dir"],
+                pre_process=command["pre_process"],
+                post_process=command["post_process"])
         # Pre and post process commands not run in parallel
         p = subprocess.Popen(
                 command,
                 shell=True,
                 stdout=subprocess.PIPE)
         self.popen_object = p
-        DebugTraceMsg(f"(process, command) : {p.pid} : <<{command}>>",
-                self.debug, prefix="Exec")
+        debug_msg(f"Process {p.pid} : <<{command}>>", prefix="exec")
 
     def terminate(self):
         if self.popen_object is not None:
@@ -619,104 +512,31 @@ class Node:
         return "h:%s, c:%s, id:%s" % (self.hostname, str(self.core), str(self.nodeid))
 
 
-class Completion:
-    """Define a completion object for a task.
-
-    The base class doesn't do a lot: it immediately returns true on the
-    completion test_sweep.
-    """
-    workdir = "."
-
-    def __init__(self,taskid=0):
-        self.taskid = taskid
-        self.stampdir = "."
-
-    def set_workdir(self,workdir):
-        self.workdir = workdir
-        if self.workdir[0]!="/":
-            self.workdir = os.getcwd()+"/"+self.workdir
-        # create stampdir. maybe this should be in the attach method?
-        if not os.path.isdir(self.workdir):
-            os.makedirs(self.workdir)
-
-    def attach(self,txt):
-        """Attach a completion to a command, giving a new command"""
-        return txt
-
-    def test(self):
-        """Test whether the task has completed"""
-        return True
-
-
-class FileCompletion(Completion):
-    """FileCompletion is the most common type of completion. It appends
-    to a command the creation of a zero size file with a unique name.
-    The completion test_sweep then tests for the existence of that file.
-
-    :param taskid: (keyword, required) this has to be unique. Unfortunately we can not test_sweep for that.
-    :param stampdir: (keyword, optional, default is self.stampdir, which is ".") directory where the stampfile is left
-    :param stamproot: (keyword, optional, default is "expire") root of the stampfile name
-    """
-    stamproot = "expire"
-    stampdir = "."
-    def __init__(self, taskid, **kwargs):
-
-        super().__init__(taskid=taskid)
-        self.set_workdir( kwargs.pop("stampdir",self.stampdir) )
-        self.stamproot = kwargs.pop("stamproot",self.stamproot)
-        if len(kwargs)>0:
-            raise LauncherException("Unprocessed FileCompletion args: %s" % str(kwargs))
-
-    def stampname(self):
-        """Internal function that gives the name of the stamp file,
-        including directory path"""
-        return "%s/%s%s" % (self.workdir,self.stamproot,str(self.taskid))
-
-    def attach(self,txt):
-        """Append a 'touch' command to the txt argument"""
-        os.system("mkdir -p %s" % self.workdir)
-        if re.match('^[ \t]*$',txt):
-            return "touch %s" % self.stampname()
-        else:
-            return "%s ; touch %s" % (txt,self.stampname())
-
-    def test(self):
-        """Test for the existence of the stamp file"""
-        return os.path.isfile(self.stampname())
-
-    def cleanup(self):
-        os.system("rm -f %s" % self.stampname())
-
-
 class Task:
     """A Task is an abstract object associated with a commandline
 
     :param command: (required) Commandline object; note that this contains the core count
-    :param completion: (keyword, optional) Completion object; if unspecified the trivial completion is used.
-    :param taskid: (keyword) identifying number of this task; has to be unique in a job, also has to be equal to the taskid of the completion
+    :param taskid: (keyword) identifying number of this task; has to be unique in a job
     :param debug: (keyword, optional) string of debug keywords
     """
-    def __init__(self,command,**kwargs):
-        self.command = command["command"]
-        self.pre_process = command["pre_process"]
-        self.post_process = command["post_process"]
-        # make a default completion if needed
-        self.completion = kwargs.pop("completion",None)
-        self.taskid = kwargs.pop("taskid",0)
-        if self.completion is None:
-            self.completion = Completion(taskid=self.taskid)
-        if self.taskid!=self.completion.taskid:
-            raise LauncherException("Incompatible taskids")
-        self.size = command["cores"]
-        self.debugs = kwargs.pop("debug","")
-        self.debug = re.search("task",self.debugs)
-        if len(kwargs)>0:
-            raise LauncherException("Unprocessed args: %s" % str(kwargs))
-        self.has_started = False
-        DebugTraceMsg("created task <<%s>>" % str(self),self.debug,prefix="Task")
-        self.nodes = None
+    def __init__(self, command, workdir, taskid=0):
 
-    def start_on_nodes(self, pool, starttick=0, **kwargs):
+        self.command = command
+        self.cores = command["cores"]
+        self.taskid = taskid
+        self.workdir = workdir / f'task_{taskid}'
+        self.workdir.mkdir()
+
+        self.nodes = None
+        self.executor = None
+        self.start_ts = None
+        self.end_ts = None
+        self.runningtime = None
+        self.rc = None
+
+        debug_msg(f"created task <<{self}>>", prefix="task")
+
+    def start_on_nodes(self, nodes):
         """Start the task.
 
         :param pool: HostLocator object (keyword, required) : this describes the nodes on which to start the task
@@ -725,46 +545,29 @@ class Task:
         This sets ``self.startime`` to right before the execution begins. We do not keep track
         of the endtime, but instead set ``self.runningtime`` in the ``hasCompleted`` routine.
         """
-        self.pool = pool
-        if not isinstance(self.pool,(HostLocator)):
-            raise LauncherException("Invalid locator object")
-        if len(kwargs)>0:
-            raise LauncherException("Unprocessed Task.start_on_nodes args: %s" % str(kwargs))
-        # wrap with stamp detector
-        wrapped = self.line_with_completion()
-        DebugTraceMsg(
-            "starting task %d of size %d on <<%s>>\nin cwd=<<%s>>\ncmd=<<%s>>" % \
-                (self.taskid,self.size,str(self.pool),os.getcwd(),wrapped),
-            self.debug,prefix="Task")
-        self.starttime = time.time()
-        commandexecutor = self.pool.pool.commandexecutor
-        commandexecutor.execute(wrapped,
-                pool=self.pool,
-                pre_process=self.pre_process,
-                post_process=self.post_process)
-        self.has_started = True
-        DebugTraceMsg("started %d" % self.taskid,self.debug,prefix="Task")
 
-    def line_with_completion(self):
-        """Return the task's commandline with completion attached"""
-        line = re.sub("PYL_ID", str(self.taskid), self.command)
-        return self.completion.attach(line)
+        debug_msg(f"starting {self.taskid}", prefix="task")
+        self.nodes = nodes
+        self.executor = IbrunExecutor(self.workdir)
+        self.executor.execute(self.command,pool=self.nodes)
+        self.start_ts = time.time()
+        debug_msg(f"started {self.taskid}",prefix="task")
 
-    def isRunning(self):
-        return self.has_started
+    def get_rc(self):
+        """Check process to see if completed"""
+        self.rc = self.executor.popen_object.poll()
+        if self.rc is not None:
+            self.end_ts = time.time()
+            self.runningtime = self.end_ts - self.start_ts
+            debug_msg(f"completed {self.taskid} in {self.runningtime:5.3f}",
+                          prefix="task")
+            return self.rc
 
-    def hasCompleted(self):
-        """Execute the completion test_sweep of this Task"""
-        completed = self.has_started and self.completion.test()
-        if completed:
-            self.runningtime = time.time()-self.starttime
-            DebugTraceMsg("completed %d in %5.3f" % (self.taskid, self.runningtime),
-                          self.debug, prefix="Task")
-        return completed
+        return -1
 
     def __repr__(self):
         s = "Task %d, commandline: [%s], pool size %d" \
-            % (self.taskid, self.command, self.size)
+            % (self.taskid, self.command, self.cores)
         return s
 
 
@@ -772,18 +575,17 @@ class TaskQueue:
 
     """Object that does the maintains a list of Task objects.
     This is internally created inside a ``LauncherJob`` object."""
-    def __init__(self, maxsimul=0, submitdelay=0, debug=False, **kwargs):
+    def __init__(self, workdir, maxsimul=0, submitdelay=0):
 
+        self.workdir = workdir
         self.queue = []
         self.running = []
         self.completed = []
+        self.errored = []
         self.aborted = []
         self.maxsimul = maxsimul
         self.submitdelay = submitdelay
-        self.debug = debug
 
-        if len(kwargs) > 0:
-            raise LauncherException("Unprocessed TaskQueue args: %s" % str(kwargs))
 
     def isEmpty(self):
         """Test whether the queue is empty and no tasks running"""
@@ -791,63 +593,63 @@ class TaskQueue:
 
     def enqueue(self, task):
         """Add a task to the queue"""
-        DebugTraceMsg(
-                "enqueueing <%s>" % str(task),
-                self.debug,
-                prefix="Queue")
+        debug_msg(f"enqueueing <{task}>", prefix="queue")
         self.queue.append(task)
 
-    def startQueued(self, hostpool, starttick: int=0, **kwargs):
-        """for all queued, try to find nodes to run it on;
-        the hostpool argument is a HostPool object"""
+    def start_queued(self, hostpool):
+        """
+        Start queued jobs
+
+        for all queued, try to find nodes to run it on;
+        the hostpool argument is a HostPool object
+        """
         tqueue = copy.copy(self.queue)
-        tqueue.sort( key=lambda x:-x.size )
+        tqueue.sort( key=lambda x:-x.cores )
         max_gap = len(hostpool)
         for t in tqueue:
             # go through tasks in descending size
             # if one doesn't fit, skip all of same size
-            requested_gap = t.size
+            requested_gap = t.cores
             if requested_gap>max_gap:
                 continue
             locator = hostpool.request_nodes(requested_gap)
             if locator is None:
-                DebugTraceMsg("could not find nodes for <%s>" % str(t),
-                              self.debug,prefix="Queue")
+                debug_msg(f"could not find nodes for <{t}>",
+                              prefix="queue")
                 max_gap = requested_gap-1
                 continue
             if self.submitdelay>0:
                 time.sleep(self.submitdelay)
-            DebugTraceMsg(f"starting task <{t}> on locator <{locator}>",
-                          self.debug,
-                          prefix="Queue")
-            t.start_on_nodes(locator, starttick=starttick)
+            debug_msg(f"starting task <{t}> on locator <{locator}>",
+                          prefix="queue")
+            t.start_on_nodes(locator)
             hostpool.occupyNodes(locator, t.taskid)
             self.queue.remove(t)
             self.running.append(t)
             self.maxsimul = max(self.maxsimul,len(self.running))
 
-    def find_recently_completed(self):
-        """Find the first recently completed task.
-        Note the return, not yield.
-        """
+    def update(self):
+        """Update queue"""
+        task_ids = []
+        running = []
         for t in self.running:
-            if t.hasCompleted():
-                DebugTraceMsg(".. job completed: %d" % t.taskid,
-                              self.debug,prefix="Queue")
-                return t
-        return None
-
-    def find_recently_aborted(self,abort_test):
-        """Find the first recently aborted task.
-        Note the return, not yield.
-        """
-        for t in self.running:
-            if abort_test(t):
-                DebugTraceMsg(".. job aborted: %d ran from %d" \
-                                  % (t.taskid,t.starttick),
-                              self.debug,prefix="Queue")
-                return t
-        return None
+            rc = t.get_rc()
+            if rc == 0:
+                self.completed.append(t)
+                task_ids.append(t.taskid)
+                debug_msg(f"Added {t.taskid} to completed: {self.completed}",
+                        prefix="queue")
+            elif rc > 0:
+                self.errored.append(t)
+                task_ids.append(t.taskid)
+                debug_msg(f"Added {t.taskid} to errored: {self.errored}",
+                        prefix="queue")
+            else:
+                rt = time.time() - t.start_ts
+                # TODO: implement timeout for aborted
+                running.append(t)
+        self.running = running
+        return task_ids
 
     def __repr__(self):
         completed = sorted( [ t.taskid for t in self.completed ] )
@@ -859,36 +661,10 @@ class TaskQueue:
                "\nqueued: " +str( CompactIntList(queued) )+\
                "\nrunning: "+str( CompactIntList(running) )+"."
 
-    def savestate(self):
-        state = ""
-        state += "queued\n"
-        for t in self.queue:
-            state += "%s: %s\n" % (t.taskid,t.command)
-        state += "running\n"
-        for t in self.running:
-            state += "%s: %s\n" % (t.taskid,t.command)
-        state += "completed\n"
-        for t in self.completed:
-            state += "%s: %s\n" % (t.taskid,t.command)
-        return state
-        f = open("queuestate","w")
-        f.write("queued\n")
-        for t in self.queue:     f.write("%s: %s\n" % (t.taskid,t.command))
-        f.write("running\n")
-        for t in self.running:   f.write("%s: %s\n" % (t.taskid,t.command))
-        f.write("completed\n")
-        for t in self.completed: f.write("%s: %s\n" % (t.taskid,t.command))
-        f.close()
-
     def final_report(self):
         """Return a string describing the max and average runtime for each task."""
         times = [ t.runningtime for t in self.completed]
-        message = """# tasks completed: %d
-tasks aborted: %d
-max runningtime: %6.2f
-avg runningtime: %6.2f
-""" % ( len(self.completed), len(self.aborted),
-        max( times ), sum( times )/len(self.completed) )
+        message = f"# tasks completed: {len(self.completed)}"
         return message
 
 
@@ -905,157 +681,67 @@ class Commandline:
     """
 
     def __init__(self, command, cores=1, **kwargs):
-        self.data = {'command' : command, "cores": int(cores), **kwargs}
+        self.data = {'command' : command,
+                "cores": int(cores), **kwargs}
 
     def __getitem__(self, ind):
-        return self.data.get(ind)
+        return self.data.get(ind, None)
 
     def __str__(self):
-        r = "command=<<%s>>, cores=%d, pre_process=<<%s>>, post_process=<<%s>>" \
-            % (self.data["command"], self.data["cores"], self.data["pre_process"], self.data["post_process"])
+        r = f"command=<<{self.__getitem__('command')}>>"
+        r += f", cores={self.__getitem__('cores')}"
+        if self.__getitem__('pre_process') is not None:
+            r += f", pre=<<{self.__getitem__('pre_process')}>>"
+        if self.__getitem__('post_process') is not None:
+            r += f", post=<<{self.__getitem__('post_process')}>>"
         return r
 
 
-class CommandlineGenerator:
-    """An iterable class that generates a stream of ``Commandline`` objects.
+class LauncherJob:
+    """LauncherJob class. Keyword arguments:
 
-    The behaviour of the generator depends on the ``nmax`` parameter:
-
-    * nmax is None: exhaust the original list
-    * nmax > 0: keep popping until the count is reached; if the initial list is shorter, someone will have to fill it,
-    which this class is not capable of
-    * nmax == 0 : iterate indefinitely, wait for someone to call the ``finish`` method
-
-    In the second and third scenario it can be the case that the list is empty.
-    In that case, the generator will yield a COMMAND that is ``stall``.
-
-    :param list: (keyword, default [] ) initial list of Commandline objects
-    :param nax: (keyword, default None) see above for explanation
+    :param hostpool: a HostPool instance (required)
+    :param taskgenerator: a TaskGenerator instance (required)
+    :param delay: between task checks  (optional)
+    :param debug: list of keywords (optional)
+    :param gather_output: (keyword, optional, default None) filename to gather all command output
+    :param maxruntime: (keyword, optional, default zero) if nonzero, maximum running time in seconds
     """
-    def __init__(self, **kwargs):
-        self.list = [e for e in kwargs.pop("list",[])];
-        self.ncommands = len(self.list)
-        self.njobs = 0
-        nmax = kwargs.pop("nmax", None)
-        if nmax is None:
-            if len(self.list)==0:
-                raise LauncherException("Empty list requires nmax==0")
-            self.nmax = len(self.list)
+    def __init__(self,
+            commandfile: str,
+            hostpool = None,
+            delay: float=0.5,
+            workdir: str=None,
+            maxruntime: float=1e10):
+
+        self.commands = self.commands_from_json(commandfile)
+        self.taskcount = 0
+
+        self.hostpool = hostpool
+        self.delay = delay
+        self.workdir = workdir
+        self.maxruntime = maxruntime
+
+        if self.workdir is None:
+            self.workdir = Path(
+                    tempfile.mkdtemp(
+                        prefix=f'job{os.environ["SLURM_JOB_ID"]}-',
+                        dir=Path.cwd()))
         else:
-            self.nmax = nmax
-        debugs = kwargs.pop("debug", "")
-        self.debug = re.search("command", debugs)
-        if len(kwargs) > 0:
-            raise LauncherException("Unprocessed CommandlineGenerator args: %s" % str(kwargs))
-        self.stopped = False
+            self.workdir = Path(workdir) if type(workdir)!=Path else workdir
+            self.workdir.mkdir(exist_ok=True)
 
-    def finish(self):
-        """Tell the generator to stop after the commands list is depleted"""
-        DebugTraceMsg("declaring the commandline generator to be finished",
-                      self.debug,prefix="Cmd")
-        self.nmax = self.njobs+len(self.list)
+        # Initialize Launcher Job Task Queue
+        self.queue = TaskQueue(workdir)
+        self.running_time = 0.0
 
-    def abort(self):
-        """Stop the generator, even if there are still elements in the commands list"""
-        DebugTraceMsg("gettingthe commandline generator to abort",
-                      self.debug,prefix="Cmd")
-        self.stopped = True
+        if self.hostpool is None:
+            self.hostpool = HostPool(hostlist=HostListByName())
 
-    def next(self):
-        """Produce the next Commandline object, or return an object telling that the
-        generator is stalling or has stopped"""
-        if self.stopped:
-            DebugTraceMsg("stopping the commandline generator",
-                          self.debug,prefix="Cmd")
-            return Commandline("stop")
-            # raise StopIteration
-        elif (len(self.list) == 0 and self.nmax != 0) or \
-                (self.nmax > 0 and self.njobs==self.nmax):
-            DebugTraceMsg("time to stop commandline generator",
-                          self.debug,prefix="Cmd")
-            return Commandline("stop")
-            # raise StopIteration
-        elif len(self.list)>0:
-            j = self.list[0]; self.list = self.list[1:]
-            DebugTraceMsg("Popping command off list <<%s>>" % str(j),
-                          self.debug,prefix="Cmd")
-            self.njobs += 1; return j
-        else:
-            return Commandline("stall")
+        # Print hostpool being used if host debug set
+        debug_msg(f"Host pool: <<{self.hostpool}>>",prefix="job")
 
-    def __iter__(self): return self
-
-    def __len__(self): return len(self.list)
-
-
-class ListCommandlineGenerator(CommandlineGenerator):
-    """A generator from an explicit list of commandlines.
-
-    * cores is 1 by default, other constants allowed.
-    """
-    def __init__(self,**kwargs):
-        cores = kwargs.pop("cores", 1)
-        commandlist = [Commandline(l, cores=cores) for l in kwargs.pop("list", [])]
-        CommandlineGenerator.__init__(self,list=commandlist,**kwargs)
-
-
-class FileCommandlineGenerator(CommandlineGenerator):
-    """A generator for commandline files:
-    blank lines and lines starting with the comment character '#' are ignored
-
-    * cores is 1 by default, other constants allowed.
-    * cores=='file' means the file has << count,command >> lines
-    * if the file has core counts, but you don't specify the 'file' value, they are ignored.
-
-    :param filename: (required) name of the file with commandlines
-    :param cores: (keyword, default 1) core count to be used for all commands
-    :param pre_post_process: (keyword, default False) are pre-process and post-process commands per line?
-    """
-    def __init__(self, filename, cores=1, pre_post_process=False, **kwargs):
-        if filename.endswith(".json"):
-            commandlist = self._init_from_json(filename, cores=cores)
-        else:
-            commandlist = self._init_from_csv(filename, cores=cores, pre_post_process=pre_post_process)
-
-        CommandlineGenerator.__init__(self, list=commandlist, **kwargs)
-
-    def _init_from_csv(self, filename, cores=1, pre_post_process=False):
-        """Parse a list of commands from a .txt/.csv file, line by line.
-        """
-
-        file = open(filename)
-        commandlist = []
-        count = 0
-        for line in file.readlines():
-            line = line.strip()
-            if re.match('^ *#',line) or re.match('^ *$',line):
-                continue # skip blank and comment
-            split = line.split(",", 1)
-            if len(split) == 1:
-                c = cores;
-                l = split[0]
-            else:
-                c, l = split
-            td = str(count)
-            if pre_post_process:
-                split = l.split(";", 2)
-                if len(split) < 3:
-                    raise LauncherException("No pre/post tasks found <<%s>>" % split)
-                pre, l, post = split
-            else:
-                pre = None
-                post = None
-            if cores == "file":
-                if not re.match("[0-9]+", c):
-                    raise LauncherException("First field <<%s>> is not a core count; line:\n<<%s>>" % (c, line))
-            else:
-                c = cores
-            commandlist.append(Commandline(l, cores=c, pre_process=pre, post_process=post))
-            count += 1
-
-        return commandlist
-
-    def _init_from_json(self, filename, cores=1):
+    def commands_from_json(self, filename, cores=1):
         """Parse a list of commands from a JSON file
 
         This allows for much greater flexibility in passing arguments.
@@ -1074,258 +760,55 @@ class FileCommandlineGenerator(CommandlineGenerator):
             commandlist.append(
                 Commandline(t["main"], cores=task_cores, id=task_id, **t)
             )
+
         return commandlist
 
-class TaskGenerator:
-    """iterator class that can yield the following:
 
-    * a Task instance, or
-    * the keyword ``stall``; this indicates that the commandline generator is stalling and this will be resolved when the outer environment does an ``append`` on the commandline generator.
-    * the ``pylauncherBarrierString``; in this case the outer environment should not call the generator until all currently running tasks have concluded.
-    * the keyword ``stop``; this means that the commandline generator is exhausted. The ``next`` function can be called repeatedly on a stopped generator.
-
-    You can iterate over an instance, or call the ``next`` method. The ``next`` method
-    can accept an imposed taskcount number.
-
-    :param commandlinegenerator: either a list of unix commands, or a CommandlineGenerator object
-    :param completion: (optional) a function of one variable (the task id) that returns Completion objects
-    :param debug: (optional) string of requested debug modes
-    :param skip: (optional) list of tasks to skip, this is for restarted jobs
-
-    """
-    def __init__(self,commandlines,**kwargs):
-        if isinstance(commandlines,(list)):
-            self.commandlinegenerator = ListCommandlineGenerator(list=commandlines)
-        elif isinstance(commandlines,(CommandlineGenerator)):
-            self.commandlinegenerator = commandlines
-        else:
-            raise LauncherException("Invalid commandline generator object")
-        self.taskcount = 0; self.paused = False
-        self.debugs = kwargs.pop("debug","")
-        self.debug = re.search("task",self.debugs)
-        self.completion = kwargs.pop("completion",lambda x:Completion(taskid=x))
-        self.skip = kwargs.pop("skip",[])
-        if len(kwargs)>0:
-            raise LauncherException("Unprocessed TaskGenerator args: %s" % str(kwargs))
-
-    def next(self,imposedcount=None):
+    def next_command(self):
         """Deliver a Task object, or a special string:
 
         * "stall" : the commandline generator will give more, all in good time
         * "stop" : we are totally done
         """
-        comm = self.commandlinegenerator.next()
-        command = comm["command"]
-            # DebugTraceMsg("commandline generator ran out",
-            #               self.debug,prefix="Task")
-            # command = "stop"
-        if command in ["stall","stop"]:
-            # the dynamic commandline generator is running dry
-            return command
-        elif command==pylauncherBarrierString:
-            # this is not working yet
-            return command
-        else:
-            if imposedcount is not None:
-                taskid = imposedcount
-            else:
-                taskid = self.taskcount
-            self.taskcount += 1
-            if taskid in self.skip:
-                return self.next(imposedcount=imposedcount)
-            else:
-                return Task(comm,taskid=taskid,debug=self.debugs,
-                            completion=self.completion(taskid),
-                            )
+        try:
+            command = self.commands.pop()
+        except IndexError:
+            return None
 
-    def __iter__(self): return self
-
-
-class LauncherJob:
-    """LauncherJob class. Keyword arguments:
-
-    :param hostpool: a HostPool instance (required)
-    :param taskgenerator: a TaskGenerator instance (required)
-    :param delay: between task checks  (optional)
-    :param debug: list of keywords (optional)
-    :param gather_output: (keyword, optional, default None) filename to gather all command output
-    :param maxruntime: (keyword, optional, default zero) if nonzero, maximum running time in seconds
-    """
-    def __init__(self,
-            hostpool,
-            taskgenerator,
-            delay: float=0.5,
-            workdir: str='.',
-            maxruntime: int=0,
-            taskmaxruntime: int=0,
-            gather_output = None,
-            debug: str="",
-            **kwargs):
-
-        self.hostpool = hostpool
-        self.delay = delay
-        self.workdir = workdir
-        self.taskgenerator = taskgenerator
-        self.maxruntime = maxruntime
-        self.taskmaxruntime = taskmaxruntime
-        self.gather_output = gather_output
-        self.debug = debug
-
-        # Print hostpool being used if host debug set
-        DebugTraceMsg("Host pool: <<%s>>" % str(self.hostpool),
-                      re.search("host",self.debug),"Job")
-
-        # Initialize Launcher Job Task Queue
-        self.queue = TaskQueue(debug=self.debug)
-        self.completed = 0
-        self.aborted = 0
-        self.tock = 0
-        self.barriertest = None
-        self.running_time = 0.0
-
-        if len(kwargs) > 0:
-            raise LauncherException("Unprocessed LauncherJob args: %s" % str(kwargs))
-
-    def finish_or_continue(self):
-        # auxiliary routine, purely to make ``tick`` look shorter
-        if self.queue.isEmpty():
-            if self.completed==0:
-                raise LauncherException("Done before we started....")
-            DebugTraceMsg("Generator and tasks finished",self.debug,prefix="Job")
-            message = "finished"
-        else:
-            DebugTraceMsg("Generator finished; tasks still running",self.debug,prefix="Job")
-            message = "continuing"
-        return message
-
-    def enqueue_task(self,task):
-        # auxiliary routine, purely to make ``tick`` look shorter
-        if not isinstance(task,(Task)):
-            raise LauncherException("Not a task: %s" % str(task))
-        DebugTraceMsg("enqueueing new task <%s>" % str(task),
-                      self.debug,prefix="Job")
-        self.queue.enqueue(task)
-
-    def tick(self):
-        """This routine does a single time step in a launcher's life, and reports back
-        to the user. Specifically:
-
-        * It tries to start any currently queued jobs. Also:
-        * If any jobs are finished, it detects exactly one, and reports its ID to the user in a message ``expired 123``
-        * If there are no finished jobs, it invokes the task generator; this can result in a new task and the return message is ``continuing``
-        * if the generator stalls, that is, more tasks will come in the future but none are available now, the message is ``stalling``
-        * if the generator is finished and all jobs have finished, the message is ``finished``
-
-        After invoking the task generator, a short sleep is inserted (see the ``delay`` parameter)
-        """
-        DebugTraceMsg("\ntick %d\nQueue:\n%s" % (self.tock,str(self.queue)),self.debug)
-        self.tock += 1
-        # see if the barrier test_sweep is completely satisfied
-        if self.barriertest is not None:
-            if reduce( lambda x,y: x and y,
-                       [ t.completed() for t in self.barriertest ] ):
-                self.barriertest = None
-                message = "continuing"
-            else:
-                # if the barrier still stands, stall
-                message = "stalling"
-        else:
-            # if the barrier is resolved, queue and test_sweep and whatnot
-            self.queue.startQueued(self.hostpool,starttick=self.tock)
-            message = None
-
-            self.handle_completed()
-            self.handle_aborted()
-            message = self.handle_enqueueing()
-            #if message in ["stalling","continuing"]:
-            time.sleep(self.delay)
-
-        if re.search("host",self.debug):
-            DebugTraceMsg(str(self.hostpool))
-        DebugTraceMsg("status: %s" % message,self.debug,prefix="Job")
-        return message
-
-    def handle_completed(self):
-        message = None
-        completed_task = self.queue.find_recently_completed()
-        if not completed_task is None:
-            self.queue.running.remove(completed_task)
-            self.queue.completed.append(completed_task)
-            completeID = completed_task.taskid
-            DebugTraceMsg("completed: %d" % completeID,self.debug,prefix="Job")
-            self.completed += 1
-            self.hostpool.releaseNodesByTask(completeID)
-            message = "expired %s" % str(completeID)
-        return message
-
-    def handle_aborted(self):
-        message = None
-        aborted_task = self.queue.find_recently_aborted(
-            lambda t:self.taskmaxruntime>0 and self.tock-t.starttick>self.taskmaxruntime )
-        if not aborted_task is None:
-            self.queue.running.remove(aborted_task)
-            self.queue.aborted.append(aborted_task)
-            completeID = aborted_task.taskid
-            DebugTraceMsg("aborted: %d" % completeID,self.debug,prefix="Job")
-            self.aborted += 1
-            self.hostpool.releaseNodesByTask(completeID)
-            message = "truncated %s" % str(completeID)
-        return message
-
-    def handle_enqueueing(self):
-        message = None
-        #try:
-        if True:
-            task = self.taskgenerator.next()
-            if task==pylauncherBarrierString:
-                message = "stalling"
-                self.barriertest = [ t.completion for t in self.queue.running ]
-                DebugTraceMsg("barrier encountered",self.debug,prefix="Job")
-            elif task=="stall":
-                message = "stalling"
-                DebugTraceMsg("stalling",self.debug,prefix="Job")
-            elif task=="stop":
-                message = self.finish_or_continue()
-                DebugTraceMsg("rolling till completion",self.debug,prefix="Job")
-            else:
-                self.enqueue_task(task)
-                message = "enqueueing"
-            # except: message = self.finish_or_continue()
-        return message
-
-    def post_process(self,taskid):
-        DebugTraceMsg("Task %s expired" % str(taskid),self.debug,prefix="Job")
+        taskid = self.taskcount
+        self.taskcount += 1
+        return Task(command, self.workdir, taskid=taskid)
 
     def run(self):
-        """Invoke the launcher job, and call ``tick`` until all jobs are finished."""
-        if re.search("host", self.debug):
-            self.hostpool.printhosts()
+        """
+        Runs tasks in taskgenerator using configured hostpool.
+        """
         start_time = time.time()
+        debug_msg("Starting launcher job",prefix="job")
         while True:
             elapsed = time.time()-start_time
-            runtime = "Time: %d" % int(elapsed)
-            if self.maxruntime>0:
-                runtime += " (out of %d)" % int(self.maxruntime)
-            DebugTraceMsg(runtime,self.debug,prefix="Job")
-            if self.maxruntime>0:
-                if elapsed>self.maxruntime:
+            if elapsed>self.maxruntime:
+                debug_msg("Exceeded max runtime",prefix="job")
+                break
+
+            # Start queued jobs
+            self.queue.start_queued(self.hostpool)
+
+            completed_tasks = self.queue.update()
+            for taskid in completed_tasks:
+                self.hostpool.releaseNodesByTask(taskid)
+
+            next_task = self.next_command()
+
+            if next_task is not None:
+                debug_msg(f"enqueueing new task <{next_task}>", prefix="job")
+                self.queue.enqueue(next_task)
+                time.sleep(self.delay)
+            else:
+                if len(self.queue.running)==0:
                     break
 
-            res = self.tick()
-            # update the restart file
-            state_f = open(self.workdir+"/queuestate","w")
-            state_f.write( self.queue.savestate() )
-            state_f.close()
-            # process the result
-            # if re.match("expired",res):
-            #     self.post_process( res.split(" ",1)[1] )
-            if res=="finished":
-                break
         self.running_time = time.time()-start_time
-        self.finish()
-
-    def finish(self):
-        self.hostpool.release()
 
     def final_report(self):
         """Return a string describing the total running time, as well as
@@ -1346,55 +829,25 @@ total running time: %6.2f
 
 
 def IbrunLauncher(commandfile,
-        debug: str="",
+        debug: str=None,
         workdir: str=None,
         cores: int=4,
-        pre_post_process: bool=False,
         **kwargs):
     """A LauncherJob for a file of small MPI jobs.
 
     The following values are specified for your convenience:
 
     * hostpool : based on HostListByName
-    * commandexecutor : IbrunExecutor
     * taskgenerator : based on the ``commandfile`` argument
-    * completion : based on a directory ``pylauncher_tmp`` with jobid environment variables attached
 
     :param commandfile: name of file with commandlines (required)
     :param cores: number of cores (keyword, optional, default=4, see ``FileCommandlineGenerator`` for more explanation)
     :param workdir: directory for output and temporary files (optional, keyword, default uses the job number); the launcher refuses to reuse an already existing directory
     :param debug: debug types string (optional, keyword)
     """
-    jobid = JobId()
-    workdir = f".pylauncher_tmp{jobid}" if workdir is None else workdir
-    logging.info(f'Initializing ibrun Launcher job {jobid} at {workdir}')
+    set_debug_flags(debug)
 
-    hostlist = HostListByName()
-    pdb.set_trace()
-
-    executor = IbrunExecutor(workdir=workdir, debug=debug)
-    hostpool = HostPool(
-            hostlist=hostlist,
-            cmnd_exec=executor,
-            debug_flags=debug)
-    command_gen = FileCommandlineGenerator(
-            commandfile,
-            cores=cores,
-            debug=debug,
-            pre_post_process=pre_post_process)
-    completion = lambda x: FileCompletion(
-            taskid=x,
-            stamproot="expire",
-            stampdir=workdir)
-    task_gen = TaskGenerator(
-            command_gen,
-            completion=completion,
-            debug=debug)
-
-    job = LauncherJob(
-        hostpool=hostpool,
-        taskgenerator=task_gen,
-        debug=debug, **kwargs)
+    job = LauncherJob(commandfile)
 
     job.run()
 

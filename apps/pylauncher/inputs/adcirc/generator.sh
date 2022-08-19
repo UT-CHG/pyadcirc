@@ -23,6 +23,7 @@ fi
 
 ITER=$1
 NP=$2
+GEN_ARGS="${@:3}"
 
 log INFO "STARTING GENERATOR"
 log DEBUG "Current Directory: $(pwd)"
@@ -33,9 +34,9 @@ conda activate adcirc
 log INFO "PYTHON PATH $(which python)"
 
 log INFO "Calling generator.py for iteration ${ITER} with $NP processes."
-log INFO "Additional arguments passed - ${@:3}"
+log INFO "Additional arguments passed - ${GEN_ARGS}"
 
-python generator.py $ITER $NP ${@:3}
+python generator.py $ITER $NP ${GEN_ARGS}
 
 log INFO "GENERATOR FINISHED"
 
