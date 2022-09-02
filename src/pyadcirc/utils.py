@@ -36,7 +36,7 @@ _logger = logging.getLogger(__name__)
 logger = logging.getLogger()
 
 # Read in ADCIRC Parameter Configuration Dictioanry
-with open(str(Path(__file__).resolve().parent / 'adcirc_configs.json'),
+with open(str(Path(__file__).resolve().parent / 'configs/adcirc_configs.json'),
           'r') as ac:
     ADCIRC_PARAM_DEFS = json.load(ac)
 
@@ -59,3 +59,51 @@ def get_param_def(param:str):
 
 def deploy_tapis_app():
     pass
+
+
+def get_bbox(f14: xr.Dataset, scale_x: float = 0.1, scale_y: float = 0.1):
+    """
+    Get Long/Lat bounding box containing grid in f14_file.
+    Computes bounding box using scale parameters where each bound
+    is determined as follows:
+
+        max_bound = max + scale * range
+        min_bound = min - scale * range
+
+    Parameters
+    ----------
+    f14_file : str
+        Path to fort.14 ADCIRC grid file.
+    scale_x : float, default=0.1
+        What percent of total longitude range to add to ends
+        of longitude min/max for determining bounding box limits.
+    scale_y : float, default=0.1
+        What percent of total latitude range to add to ends
+        of latitude min/max for determining bounding box limits.
+
+
+    Returns
+    -------
+    bbox : List[List[float]]
+        Long/lat bounding box list in the form `[west,east,south,north]`.
+
+    """
+
+
+    bounds = [
+        [f14["X"].values.min(), f14["X"].values.max()],
+        [f14["Y"].values.min(), f14["Y"].values.max()],
+    ]
+    buffs = [
+        (bounds[0][1] - bounds[0][0]) * scale_x,
+        (bounds[1][1] - bounds[1][0]) * scale_y,
+    ]
+    bbox = [
+        bounds[0][0] - buffs[0],
+        bounds[0][1] + buffs[0],
+        bounds[1][0] - buffs[1],
+        bounds[1][1] + buffs[1],
+    ]
+
+    return bounds, bbox
+

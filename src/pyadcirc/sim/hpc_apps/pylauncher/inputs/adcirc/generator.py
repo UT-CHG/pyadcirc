@@ -1,3 +1,7 @@
+import argparse
+import time
+import json
+from pathlib import Path
 from typing import List
 from pathlib import Path
 import numpy as np
@@ -42,9 +46,7 @@ def gen_uniform_beta_fort13(
     if not Path(base_f13_path).exists():
         raise ValueError(f"Unable to find base fort.13 file {base_f13_path}")
 
-    targ_path = Path(
-        f"{str(targ_dir)}/{name}_{domain[0]:.1f}-{domain[1]:.1f}_u{num_samples}"
-    )
+    targ_path = Path(f"{str(targ_dir)}")
     targ_path.mkdir(exist_ok=True)
 
     beta_vals = np.random.uniform(domain[0], domain[1], size=num_samples)
@@ -53,7 +55,8 @@ def gen_uniform_beta_fort13(
     files = []
     for idx, b in enumerate(beta_vals):
         f13["v0"][0] = b
-        job_name = f"beta-{idx}_{b:.2f}"
+        job_name = f"{name}_job-{idx}-{num_samples}_beta{b:.2f}"
+        job_name += f"_u{domain[0]:.1f}-{domain[1]:.1f}"
         job_dir = targ_path / job_name
         job_dir.mkdir(exist_ok=True)
         fpath = str(job_dir / "fort.13")
@@ -66,8 +69,7 @@ def generator(base_dir:str,
     runs_dir:str,
     execs_dir:str,
     cores_per_job:int,
-    write_proc_per_job:int = 0,
-    remora:int = 0):
+    write_proc_per_job:int = 0):
   """
   Generator for set of basic ADCIRC runs. Assumes base set of files (for
   example, fort.14 adn fort.15 contorl file) are in `base_dir` on TACC systems
@@ -90,8 +92,6 @@ def generator(base_dir:str,
     Number of total MPI processes to use for each ADCIRC run.
   write_proc_per_job: int, default=0
     Number of teh total cores to use for dedicated writing of output files.
-  remora: int, default=0
-    If non-zero, runs each job with remora monitoring.
 
   Returns
   -------
@@ -112,22 +112,68 @@ def generator(base_dir:str,
   for idx, job in enumerate(job_dirs):
     job_dir = job.resolve()
     job_name = job.name
-    adcirc_log_file = f"logs/adcirc_{idx+1}_{job_name}.log"
+    log_file = f"{job_dir}/adcirc_{idx+1}_{job_name}.log"
 
     # Pre-process command
-    pre_process = ''.join([f"./pre_process.sh {idx+1} {base_dir} {job_dir} ",
+    pre_process = ''.join([f"inputs/pre_process.sh {idx+1} {base_dir} {job_dir} ",
         f"{execs_dir} {run_proc}"])
 
     # Main ADCIRC command
-    main = f"cd {job_dir}; ./padcirc -W {write_proc_per_job} >> {log_file}"
+    main = f"./padcirc -W {write_proc_per_job}"
 
     # Post process command - For now does nothing
-    post_process = (f"./post_process.sh {idx+1}")
+    post_process = (f"inputs/post_process.sh {job_dir}")
 
-    job_configs.append({"cores": cores_per_job,
-           "main": main,
-           "pre_process": pre_process,
-           "post_process": post_process,
-           "remora": 1 if remora else 0})
+    job_configs.append({"cores": int(cores_per_job),
+           "cmnd": str(main),
+           "cdir": str(job_dir / 'adcirc'),
+           "workdir": str(job_dir),
+           "pre": str(pre_process),
+           "post": str(post_process)})
 
   return job_configs
+
+if __name__ == "__main__":
+
+  # Parse command line options
+  parser = argparse.ArgumentParser()
+  parser.add_argument("iter", type=int)
+  parser.add_argument("np", type=int)
+  parser.add_argument("base_dir", type=str)
+  parser.add_argument("execs_dir", type=str)
+  parser.add_argument("--max_iters", type=int, default=1)
+  parser.add_argument("--runs_dir", type=str, default=None)
+  parser.add_argument("--cores_per_job", type=int, default=4)
+  parser.add_argument("--write_proc_per_job", type=int, default=0)
+  parser.add_argument("--num_samples", type=int, default=10)
+  parser.add_argument("--range-low", type=float, default=0.0)
+  parser.add_argument("--range-high", type=float, default=2.0)
+  args = parser.parse_args()
+
+  # Only generate configs on first iteration (only one run-through)
+  # TODO: On future iterations check for failed jobs and re-run
+  # Or run image processing/post-processing on future runs after jobs complete.
+  if args.iter <= args.max_iters:
+
+    if args.cores_per_job > args.np:
+      args.cores_per_job = args.np
+
+    if args.runs_dir is None:
+        args.runs_dir, _ = gen_uniform_beta_fort13(
+            base_f13_path=f"{args.base_dir}/fort.13",
+            targ_dir=Path.cwd() / 'jobs',
+            name=f"i{args.iter}_{time.strftime('%Y%m%d-%H%M%S')}",
+            num_samples=args.num_samples,
+            domain=[args.range_low, args.range_high])
+
+    jobs = generator(args.base_dir,
+            args.runs_dir,
+            args.execs_dir,
+            args.cores_per_job,
+            args.write_proc_per_job
+            )
+
+    # Write jobs json file
+    with open("jobs_list.json", "w") as fp:
+      print(f"Writing {len(jobs)} jobs to json file.")
+      json.dump(jobs, fp)

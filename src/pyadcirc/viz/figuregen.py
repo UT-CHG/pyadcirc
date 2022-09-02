@@ -11,15 +11,15 @@ import colorcet as cc
 import matplotlib as mpl
 import numpy as np
 import pandas as pd
-from pyadcirc.io import read_fort14
+from pyadcirc.io.io import read_fort14
 import six
 from InquirerPy import inquirer
 from InquirerPy.base.control import Choice
 from InquirerPy.separator import Separator
 from InquirerPy.validator import EmptyInputValidator, PathValidator
 from prettytable import PrettyTable
-from pyadcirc.figuregen.fg_config import *
-from pyadcirc.figuregen.palettes import *
+from pyadcirc.configs.fg_config import *
+from pyadcirc.viz.palettes import *
 from pyfiglet import figlet_format
 
 # See if docker, tapis, or taccjm options are installed for use
@@ -91,6 +91,7 @@ def color_mixer(
     return [int(x) for x in 255.0 * ((1 - mix) * c1 + mix * c2)]
 
 
+# TODO: switch get_bbox function in utils
 def get_bbox(f14_file: str, scale_x: float = 0.1, scale_y: float = 0.1):
     """
     Get Long/Lat bounding box containing grid in f14_file.

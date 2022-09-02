@@ -11,9 +11,10 @@ from pathlib import Path
 import pandas as pd
 import requests
 import xarray as xa
+from pyadcirc.utils import get_bbox
 
 # Path to json file with noaa station data pulled from website
-NOAA_STATIONS = pd.read_json(Path(Path(__file__).parents[0] / "noaa_stations.json"))
+NOAA_STATIONS = pd.read_json(Path(Path(__file__).parents[1] / "configs/noaa_stations.json"))
 
 
 def parse_f15_station_list(region: str):
@@ -189,3 +190,7 @@ def get_station_data(station_id: int, start_date: str, end_date: str):
     ds.attrs = params
 
     return ds
+
+def find_stations_in_bbox(bbox):
+    """Return list of NOAA stations that are within a given bounding box"""
+    pass

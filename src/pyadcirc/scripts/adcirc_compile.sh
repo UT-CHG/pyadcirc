@@ -4,26 +4,26 @@ helpFunction()
 {
 	echo ""
 	echo "Usage: $0 name [git] [tag]"
-	echo -e "\tname - of adcirc to version/tag to build. Must be valid github tag at https://github.com/adcirc/adcirc-cg."
+	echo -e "\tname - of adcirc to version/tag to build. Must be valid github version/tag at https://github.com/adcirc/adcirc-cg, or at the git url provided"
 	echo -e "\tgit - URL. Default at https://github.com/adcirc/adcirc-cg)"
 	echo -e "\ttag - 1 if is tagged version, 0 if not. Default is 0."
 	exit 1 # Exit script after printing help
 }
 
 log () {
-  echo "$(date) | ADCIRC_COMPILE | ${1} | ${2}" 
+  echo "$(date) | ADCIRC_COMPILE | ${1} | ${2}"
 }
 
 # Print helpFunction in case parameters are empty
 name=$1
-if [ -z "$name" ] 
+if [ -z "$name" ]
 then
 	echo "Must specify version/tag name.";
 	helpFunction
 fi
 
 gitURL=$2
-if [ -z "$gitURL" ] 
+if [ -z "$gitURL" ]
 then
 	gitURL="https://github.com/adcirc/adcirc-cg"
 fi
@@ -46,8 +46,8 @@ fi
 log INFO "Cloning ADCIRC repo at $gitURL"
 git clone $gitURL repo > ../adcirc_build.log 2>&1
 
-# Move into git repo 
-cd repo 
+# Move into git repo
+cd repo
 
 # Fetch all remote tags/branches
 git config pull.rebase true
@@ -55,7 +55,7 @@ log INFO "Updating repo"
 git fetch --all --tags >> adcirc_build.log 2>&1
 git pull >> adcirc_build.log 2>&1
 
-# Checkout version branch or tagged version 
+# Checkout version branch or tagged version
 if [[ "$tag" -eq "1" ]]
 then
 	log INFO "Checking out tag $name"
@@ -113,5 +113,6 @@ else
     exit 1
 fi
 
-log INFO "Copying executables"
-cp adcprep padcirc padcswan ../../bin/$name/
+log INFO "Copying executables to dest dir ${WORK}/../adcirc/execs/${TACC_SYSTEM}-${name}/"
+mkdir -p "${WORK}/../adcirc/execs/${TACC_SYSTEM}-${name}/"
+cp adcprep padcirc padcswan "${WORK}/../adcirc/execs/${TACC_SYSTEM}-${name}/"

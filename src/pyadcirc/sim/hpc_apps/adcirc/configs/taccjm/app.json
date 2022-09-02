@@ -1,0 +1,40 @@
+{
+    "name": "adcirc",
+    "short_desc": "ADCIRC application",
+    "long_desc": "Aplication for running singular ADCIRC runs",
+    "default_node_count": 1,
+    "default_processors_per_node": 12,
+    "default_max_run_time": "00:30:00",
+    "default_queue": "development",
+    "entry_script": "run.sh",
+    "inputs": [],
+    "parameters": [
+        {
+            "name": "inputDirectory",
+            "label": "Input Directory",
+            "desc": "The directory containing ADCIRC input files."
+        },
+        {
+            "name": "execDirectory",
+            "label": "Executables Directory",
+            "desc": "The directory containing ADCIRC executables to use."
+        },
+        {
+            "name": "writeProcesses",
+            "label": "Number of Write Processes",
+            "desc": "Number of processes to dedicate to writing output data."
+        },
+        {
+            "name": "remora",
+            "label": "REMORA FLag",
+            "desc": "Whether to run REMORA resource monitoring tool."
+        }
+    ],
+    "outputs": [
+        {
+            "name": "Outputs",
+            "label": "Output Directory",
+            "desc": "Directory containing output to archive."
+        }
+    ]
+}

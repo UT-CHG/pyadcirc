@@ -15,11 +15,18 @@ from contextlib import contextmanager
 from functools import reduce
 from pathlib import Path
 from time import perf_counter, sleep
-from typing import List
+from typing import List, Tuple
 
 import numpy as np
 import pandas as pd
 import xarray as xr
+import argparse
+import logging
+import pdb
+import sys
+from pathlib import Path
+
+from pyadcirc.utils import get_bbox
 from pyadcirc import __version__
 
 __author__ = "Carlos del-Castillo-Negrete"
@@ -28,7 +35,7 @@ __license__ = "MIT"
 _logger = logging.getLogger(__name__)
 
 pd.options.display.float_format = "{:,.10f}".format
-logger = logging.getLogger()
+logger = logging.getLogger("adcirc_io")
 
 @contextmanager
 def timing(label: str):
@@ -51,6 +58,8 @@ def read_param_line(out, params, f, ln=None, dtypes=None):
       else:
         out.attrs[params[i]] = vals[i]
     except ValueError:
+        out.attrs[params[i]] = np.nan
+    except IndexError:
         out.attrs[params[i]] = np.nan
 
   if ln:
@@ -190,6 +199,7 @@ def read_fort14(f14_file, ds=None, load_grid=True):
 
   # Get flow sepcified boundary segments
   for i in range(ds.attrs['NBOU']):
+    sub = xr.Dataset()
     logger.info('Reading NBOU #' + str(i))
 
     # NVELL(k), IBTYPE(k)
@@ -217,6 +227,9 @@ def read_fort15(f15_file, ds=None):
 
   :param f15_file: Path to Python file.
   """
+  if not Path(f15_file).is_file():
+      raise ValueError(f'fort.15 file at {f15_file} not found')
+
   if type(ds)!=xr.Dataset:
       ds = xr.Dataset()
 
@@ -255,7 +268,11 @@ def read_fort15(f15_file, ds=None):
     ds, ln = read_param_line(ds, [p], f15_file, ln=ln, dtypes=[int])
 
   if ds.attrs['NWS']!=0:
-    ds, ln = read_param_line(ds, ['WTIMINC'], f15_file, ln=ln, dtypes=[int])
+    if ds.attrs['NWS']>100:
+      tmp, ln = read_param_line(xr.Dataset(), ['W1', 'W2'], f15_file, ln=ln, dtypes=[int, int])
+      ds.attrs['WTIMINC'] = [tmp.attrs['W1'], tmp.attrs['W2']]
+    else:
+      ds, ln = read_param_line(ds, ['WTIMINC'], f15_file, ln=ln, dtypes=[int])
 
   ds, ln = read_param_line(ds, ['RNDAY'], f15_file, ln=ln, dtypes=[float])
 
@@ -679,7 +696,7 @@ def read_owi_met(path, vals=['v1'], times=[0]):
         # Grid Spec Line:
         # 11 format (t6,i4,t16,i4,t23,f6.0,t32,f6.0,t44,f8.0,t58,f8.0,t69,i10,i2)
         # read (20,11) iLat, iLong, dx, dy, swlat, swlong, lCYMDH, iMin
-        grid_spec = re.sub("[^\-0-9=.]", "", line)[1:].split("=")
+        grid_spec = re.sub(r"[^\-0-9=.]", "", line)[1:].split("=")
         ilat  = int(grid_spec[0])
         ilon  = int(grid_spec[1])
         dx    = float(grid_spec[2])
@@ -728,7 +745,7 @@ def read_owi_met(path, vals=['v1'], times=[0]):
         # Only increment index in time array if it matches current index of data
         time_idx = time_idx+1
       else:
-        grid_spec = re.sub("[^\-0-9=.]", "", line)[1:].split("=")
+        grid_spec = re.sub(r"[^\-0-9=.]", "", line)[1:].split("=")
         ilat  = int(grid_spec[0])
         ilon  = int(grid_spec[1])
         ts = pd.to_datetime(grid_spec[6], format=tf)
@@ -747,8 +764,7 @@ def read_owi_met(path, vals=['v1'], times=[0]):
       cur_line += 1
       line = lc.getline(path, cur_line)
     except Exception as e:
-      pdb.set_trace()
-      print("here")
+      raise e
 
   if len(all_data)>0:
     ret_ds =  xr.concat(all_data, "time")
@@ -856,7 +872,13 @@ def write_fort15(ds, f15_file):
       write_param_line(ds, [p], f15)
 
     if ds.attrs['NWS']!=0:
-      write_param_line(ds, ['WTIMINC'], f15)
+      if ds.attrs['NWS']>100:
+        tmp = ds.attrs['WTIMINC']
+        ds.attrs['WTIMINC'] = f'{tmp[0]} {tmp[1]}'
+        write_param_line(ds, ['WTIMINC'], f15)
+        ds.attrs['WTIMINC'] = tmp
+      else:
+        write_param_line(ds, ['WTIMINC'], f15)
 
     write_param_line(ds, ['RNDAY'], f15)
 
@@ -1177,138 +1199,346 @@ def process_adcirc_configs(path, filt='fort.*', met_times=[]):
 
   return ds
 
+def modify_f15_attrs(
+        fort_path: str=Path.cwd(),
+        nc_path: str=None,
+        output_format: str='fort',
+        output_dir: str='.',
+        overwrite: bool=False,
+        **kwargs,
+):
+    """Read in f15 file, apply changes in kwargs, and write to output dir."""
+    ds = None
+    if nc_path is None:
+        ds = read_fort14(str(fort_path / 'fort.14'))
+        ds = read_fort15(str(fort_path / 'fort.15'), ds=ds)
+    else:
+        ds = open_dataset(nc_path)
 
-# ---- Python API ----
-# The functions defined in this section can be imported by users in their
-# Python scripts/interactive interpreter, e.g. via
-# `from pyadcirc.skeleton import fib`,
-# when using this Python module as a library.
+    to_overwrite = list(kwargs.keys())
+    avail = list(ds.attrs.keys())
+    wrong = [x for x in to_overwrite if x not in avail]
+    if len(wrong) > 0:
+        raise ValueError(f'Invalid configs to overwrite {wrong}')
+
+    for attr in to_overwrite:
+        ds[attrs] = kwargs[attr]
+
+    od_path = Path(output_dir)
+    od_path.mkdir(exist_ok=overwrite)
+
+    if output_format == 'fort':
+        output_path = str(od_path / 'fort.15')
+        write_fort15(ds, output_path)
+    else:
+        output_path = str(od_path / '.nc')
+        ds.to_netcdf(path=output_path)
+
+def merge_output(
+    output_dir: str,
+    stations: bool = True,
+    globs: bool = False,
+    minmax: bool = True,
+    nodals: bool = True,
+    partmesh: bool = True,
+):
+    """Merge ADCIRC output. Assumes local/global output on same frequency"""
+    ds = xr.Dataset()
+
+    if stations:
+        station_idxs = [61, 62, 71, 72, 91]
+        station_files = [f"{output_dir}/fort.{x}.nc" for x in station_idxs]
+        for i, sf in enumerate(station_files):
+            logger.info(f"Reading station data {sf}")
+            if i != 0:
+                station_data = xr.open_dataset(sf)
+                ds = xr.merge([ds, station_data], compat="override")
+            else:
+                ds = xr.open_dataset(sf)
+
+        d_vars = list(ds.data_vars.keys())
+        new_names = [(x, f"{x}-station") for x in d_vars if x != "station_name"]
+        ds = ds.rename(dict(new_names))
+
+    if globs:
+        glob_idxs = [63, 64, 73, 74, 93]
+        global_files = [f"{output_dir}/fort.{x}.nc" for x in glob_idxs]
+        for gf in global_files:
+            logger.info(f"Reading global data {gf}")
+            global_data = xr.open_dataset(gf)
+            ds = xr.merge([ds, global_data])
+
+    if minmax:
+        minmax = ["maxele", "maxvel", "maxwvel", "minpr"]
+        minmax_files = [f"{output_dir}/{x}.63.nc" for x in minmax]
+        for mf in minmax_files:
+            logger.info(f"Reading min/max data {mf}")
+            minmax_data = xr.open_dataset(mf)
+            minmax_data = minmax_data.drop("time")
+            ds = xr.merge([ds, minmax_data])
+
+    if nodals:
+        # Load f13 nodal attribute data
+        ds = read_fort13(f"{output_dir}/fort.13", ds)
+
+    if partmesh:
+        # Load partition mesh data
+        ds["partition"] = (
+            ["node"],
+            pd.read_csv(f"{output_dir}/partmesh.txt", header=None)
+            .to_numpy()
+            .reshape(-1),
+        )
+
+    return ds
+
+def gen_uniform_beta_fort13(
+    base_f13_path: str = "fort.13",
+    targ_dir: str = None,
+    name: str = "beta",
+    num_samples: int = 10,
+    domain: List[int] = [0.0, 2.0],
+):
+    """
+    Generate fort.13 files w/beta vals from uniform distribution
+
+    Parameters
+    ----------
+    base_f13_path : str, default='fort.13'
+        Path to base fort.13 file to modify beta values for
+    targ_dir : str, optional
+        Path to output directory. Defaults to current working directory.
+    name : str, default='beta'
+        Name to give to output directory. Final name will be in the
+        format {name}_{domain min}-{domain max}_u{num samples}
+    num_samples : int, default=10
+        Number of samples to take from a uniform distribution
+    domain : List[int], default=[0.0, 2.0]
+        Range for beta values.
 
 
-def adcirc_to_xarray(path, filt='fort*', met_times=[0], out_path='./adc.nc'):
-    """Convert adcric inputs (fort.*) to xarray netcdf file
+    Returns
+    ----------
+    targ_path : str
+        Path to directory containing all the seperate job directories
+        with individual fort.13 files
 
-    Args:
-      path (int): Path to folder containing adcirc files
-      filt (str): String to filter files to process on, defaults to 'fort.*'
-      met_times (str): CSL list of time idices to pull meterological data at. n
-      out_path (str): Output file path
-
-    Returns:
-      xarray: n-th Fibonacci number
     """
 
-    res = adcirc_to_xarray(path, filt='fort.*', met_times=[])
-    res.to_netcdf(out_path)
+    targ_dir = Path.cwd() if targ_dir is None else targ_dir
+    if not targ_dir.exists():
+        raise ValueError(f"target directory {str(targ_dir)} does not exist")
+    if not Path(base_f13_path).exists():
+        raise ValueError(f"Unable to find base fort.13 file {base_f13_path}")
 
-    return res
+    targ_path = Path(f"{str(targ_dir)}")
+    targ_path.mkdir(exist_ok=True)
+
+    beta_vals = np.random.uniform(domain[0], domain[1], size=num_samples)
+    f13 = pyio.read_fort13(base_f13_path)
+
+    files = []
+    for idx, b in enumerate(beta_vals):
+        f13["v0"][0] = b
+        job_name = f"{name}_job-{idx}-{num_samples}_beta{b:.2f}"
+        job_name += f"_u{domain[0]:.1f}-{domain[1]:.1f}"
+        job_dir = targ_path / job_name
+        job_dir.mkdir(exist_ok=True)
+        fpath = str(job_dir / "fort.13")
+        pyio.write_fort13(f13, fpath)
+        files.append(fpath)
+
+    return str(targ_path), files
 
 
-# ---- CLI ----
-# The functions defined in this section are wrappers around the main Python
-# API allowing them to be called directly from the terminal as a CLI
-# executable/script.
-
-
-def parse_args(args):
-    """Parse command line parameters
-
-    Args:
-      args (List[str]): command line parameters as list of strings
-          (for example  ``["--help"]``).
-
-    Returns:
-      :obj:`argparse.Namespace`: command line parameters namespace
+def cfsv2_grib_to_adcirc_netcdf(files: List[str],
+                                data_dir: str = None,
+                                output_name: str = None,
+                                bounding_box : List[float] = None,
+                                date_range : Tuple[str] = None):
     """
-    parser = argparse.ArgumentParser(description="Process ADCIRC Configs")
-    parser.add_argument(
-        "--version",
-        action="version",
-        version="pyadcirc {ver}".format(ver=__version__),
-    )
-    parser.add_argument(dest="path", help="Path to ADCIRC files", type=str, metavar="STR")
-    parser.add_argument(
-        "-f",
-        "--filter",
-        dest="filt",
-        help="String filter for adcirc files to process.",
-        default="fort.*"
-    )
-    parser.add_argument(
-        "-m",
-        "--met_idxs",
-        dest="met_idxs",
-        help="Indices to pull meterological data for",
-        default="0"
-    )
-    parser.add_argument(
-        "-v",
-        "--verbose",
-        dest="loglevel",
-        help="set loglevel to INFO",
-        action="store_const",
-        const=logging.INFO,
-    )
-    parser.add_argument(
-        "-vv",
-        "--very-verbose",
-        dest="loglevel",
-        help="set loglevel to DEBUG",
-        action="store_const",
-        const=logging.DEBUG,
-    )
-    return parser.parse_args(args)
+    CFSv2 Grib Data to ADCIRC netcdf fort.22* metereological forcing files.
 
+    Converts and sub-samples data in time and space from a set of grib files
+    that have been downloaded from NCAR's CFSv2 data set (id='ds094.1')
 
-def setup_logging(loglevel):
-    """Setup basic logging
+    Parameters
+    ----------
+    files : List[str]
+      List of grib files to open. Must all correspond to the same type of data.
+    data_dir : str, optional
+      Directory where grib files are location. Defaults to current working
+      directory.
+    output_name : str, optional
+      Name of output netcdf file to write. If none specified (default), then no
+      output file will be written, just the read in xarray will be returned.
+    bounding_box : List[float], optiontal
+      Bounding box list in `[long_min, long_max, lat_min, lat_max]` format. By
+      default grib datastes from CFSv2 are global.
+    date_range : Tuple[str]
+      Date tuple, (start_date, end_date), to be fed into
+      `data.sel(time=slice(start_date, end_Date))` to sub-sample `data` along
+      the time dimension.
 
-    Args:
-      loglevel (int): minimum loglevel for emitting messages
+    Returns
+    -------
+    data : xarray.Dataset
+      xarray.Dataset containing dimensiosn `(time, latitude, longitude)` with
+      data variables corresponding to meteorological forcing data from CFSv2.
+
     """
-    logformat = "[%(asctime)s] %(levelname)s:%(name)s:%(message)s"
-    logging.basicConfig(
-        level=loglevel, stream=sys.stdout, format=logformat, datefmt="%Y-%m-%d %H:%M:%S"
-    )
+    # Open data-set
+    data = xr.open_mfdataset(files, engine='cfgrib', lock=False)
+
+    # Filter according to passed in args
+    if bounding_box is not None:
+      long_range = np.array(bounding_box[0:2]) % 360
+      data = data.sel(
+          latitude=slice(bounding_box[2], bounding_box[3]),
+          longitude=slice(long_range[0], long_range[1]),
+      )
+    if date_range is not None:
+      data = data.sel(time=slice(date_range[0], date_range[1]))
+
+    # Data is divided into steps within each time step. Select first
+    data = data.isel(step=0)
+
+    # Drop unecessary coordiantes
+    coords = ["time", "latitude", "longitude"]
+    drop = [x for x in list(data.coords.keys()) if x not in coords]
+    for x in drop:
+        data = data.drop(x)
+
+    # Write only if necessary
+    if output_name is not None:
+      data.to_netcdf(output_name)
+
+    return data
 
 
-def main(args):
-    """Wrapper allowing :func:`fib` to be called with string arguments in a CLI fashion
+def add_cfsv2_met_forcing(
+        ds,
+        files,
+        met_data_dir,
+        start_date=None,
+        end_date=None,
+        out_path=None):
+    """Modifies adcirc run config to add meterological forcing found in met_data"""
 
-    Instead of returning the value from :func:`fib`, it prints the result to the
-    ``stdout`` in a nicely formated message.
+    _, bbox = get_bbox(ds)
+    met_data = cfsv2_grib_to_adcirc_netcdf(files=files,
+                                           bounding_box=bbox,
+                                           date_range=[start_date, end_date])
 
-    Args:
-      args (List[str]): command line parameters as list of strings
-          (for example  ``["--verbose", "42"]``).
-    """
-    args = parse_args(args)
-    setup_logging(args.loglevel)
-    _logger.debug("Processing adcirc configs")
+    ds.attrs['RNDAY'] = (met_data['time'][-1] - met_data['time'][0]).values / np.timedelta64(1, 'D')
+    wtiminc = (met_data['time'][1]-met_data['time'][0]).values / np.timedelta64(1, 's')
 
-    res = adcirc_to_xarray(args.path, filt=args.filt, met_idxs=args.met_idxs)
+    has_ice = any([str(f).startswith('ice') for f in files])
+    ds.attrs['NWS'] = 14014 if has_ice else 14
+    ds.attrs['WTIMINC'] = f'{wtiminc}, {wtiminc}' if has_ice else f'{wtiminc}'
+    ds.attrs['NOUTM'] = -3
+    ds.attrs['TOUTSM']= 0.0
+    ds.attrs['TOUTSM']= 0.0
+    ds.attrs['TOUTFM']= 0.0
+    ds.attrs['NSPOOLM']= 0.0
+    ds.attrs['NSTAM']= 0.0
+    ds.attrs['NCDATE'] = str(pd.to_datetime(met_data['time'][0].values))
+    ds['XEM'] = xr.DataArray([],dims=["STATIONS_MET"],
+                             coords=dict(STATIONS_MET=(["STATIONS_MET"], [])))
+    ds['YEM'] = xr.DataArray([],dims=["STATIONS_MET"],
+                             coords=dict(STATIONS_MET=(["STATIONS_MET"], [])))
+    ds = ds.merge(met_data)
+
     pdb.set_trace()
-    print("Done Processing ADCIRC Configs")
-    _logger.info("Script ends here")
+    if out_path is not None:
+        ds.to_netcdf(out_path)
+
+    return ds
 
 
-def run():
-    """Calls :func:`main` passing the CLI arguments extracted from :obj:`sys.argv`
+def read_fort24(f24_file, ds):
+    """Read fort24 Files, Self Attraction/Earth Load Tide Forcing Files
 
-    This function can be used as entry point to create console scripts with setuptools.
+    Based off documentation in
+    https://adcirc.org/home/documentation/users-manual-v51/input-file-descriptions/self-attractionearth-load-tide-forcing-file-fort-24
+    Requires a pre-read fort.14 and fort.15 file contained in ds.
+
+    This file exists if NTIP==2
+
     """
-    main(sys.argv[1:])
+    if type(ds)!=xr.Dataset:
+            ds = xr.Dataset()
+
+    ln = 1
+    salt_data = None
+    for i,name in enumerate(ds['BOUNTAG']):
+        tmp, ln = read_param_line(xr.Dataset(), ['AlphaLine'], f24_file, ln=ln)
+        tmp, ln = read_param_line(tmp, ['Freq'], f24_file, ln=ln)
+        tmp, ln = read_param_line(tmp, ['Dummy'], f24_file, ln=ln, dtypes=[int])
+        tmp, ln = read_param_line(tmp, ['Name'], f24_file, ln=ln)
+        # TODO check Frequeny and name match BOUNTAG
+        if tmp.attrs['Name'] != name.values:
+            raise ValueError('Order of Tidal components in f24 does not match f15')
+        cols = ['JN', 'SALTAMP', 'SALTPHA']
+        tmp_df = pd.read_csv(f24_file, skiprows=ln-1, nrows=ds.attrs['NP'],
+                delim_whitespace=True, names=cols)
+        ln += ds.attrs['NP']
+        tmp_df['NAMEFR'] = name.values
+        if i > 0:
+            salt_data = salt_data.append(tmp_df)
+        else:
+            salt_data = tmp_df
+
+    salt_xa = pd.DataFrame(salt_data).set_index(['JN', 'NAMEFR']).to_xarray()
+    ds = xr.merge([ds, salt_xa], combine_attrs='override')
+
+    return ds
+
+def write_fort24(ds, f24_file):
+    """Write fort24 Files, Self Attraction/Earth Load Tide Forcing Files
+
+    Based off documentation in
+    https://adcirc.org/home/documentation/users-manual-v51/input-file-descriptions/self-attractionearth-load-tide-forcing-file-fort-24
+    Requires a pre-read fort.14 and fort.15 file contained in ds.
+
+    This file exists if NTIP==2
+
+    """
+    Path(f24_file).unlink(missing_ok=True)
+    for i,name in enumerate(ds['BOUNTAG']):
+        with open(f24_file, 'a') as f24:
+            freq = ds['AMIGT'].sel(TIPOTAG=name.values).values
+            write_text_line(f"{name.values} SAL", '', f24)
+            write_text_line(f"{freq}", '', f24)
+            write_text_line("1", '', f24)
+            write_text_line(f"{name.values}", '', f24)
+        cols = ['JN', "SALTAMP", "SALTPHA"]
+        out_df = ds.sel(NAMEFR=name.values).drop_vars('NAMEFR')[cols].to_dataframe()
+        out_df.to_csv(f24_file, sep=' ', mode='a', header=None)
+
+def write_fort_22_netcdf_files(ds):
+    """ """
+    pass
+
+def add_elevation_stations(
+        ds,
+        stations,
+        append=True,
+        ):
+    """Add stations to ds configuration for outputting"""
+    pass
 
 
-if __name__ == "__main__":
-    # ^  This is a guard statement that will prevent the following code from
-    #    being executed in the case someone imports this file instead of
-    #    executing it as a script.
-    #    https://docs.python.org/3/library/__main__.html
+def sync_output_params(
+        ds,
+        station_start=None,
+        station_end=None,
+        station_freq=None,
+        global_start=None,
+        global_end=None,
+        global_freq=None):
+    """Sets start/stop and timestep for station and global output files for all
+    relevant outputs configured currently in `ds`.
+    """
+    pass
 
-    # After installing your project with pip, users can also run your Python
-    # modules as scripts via the ``-m`` flag, as defined in PEP 338::
-    #
-    #     python -m pyadcirc.skeleton 42
-    #
-    run()
