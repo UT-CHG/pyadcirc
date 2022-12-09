@@ -512,7 +512,7 @@ def read_fort13(f13_file, ds=None):
 
   # Read Nodal Attribute info
   nodals = []
-  for i in range(ds.attrs['NAttr']):
+  for i in range(int(ds.attrs['NAttr'])):
     tmp, ln = read_param_line(xr.Dataset(), ['AttrName'], f13_file, ln=ln)
     tmp, ln = read_param_line(tmp, ['Units'], f13_file, ln=ln)
     tmp, ln = read_param_line(tmp, ['ValuesPerNode'], f13_file, ln=ln, dtypes=[int])
@@ -1388,6 +1388,15 @@ def cfsv2_grib_to_adcirc_netcdf(files: List[str],
 
     """
     # Open data-set
+    pdb.set_trace()
+    # TODO: Group by ds type and then loop through each type
+    # Deal with different ds formats for each type.
+    # format for filename is <field>.<type>.<date>.grb2
+    # Parse the first two, load and merge into main data set per field,
+    # Field will sometimes be further divided with a '.l.'
+    # as in 'prmsl.cdas1.201801.grb2' and 'prmsl.l.cdas1.201801.grb2'
+    # .l. dataset is coarser data. pick it to start. if no data over grid user finer.
+    # ad option to force using finer dataset.
     data = xr.open_mfdataset(files, engine='cfgrib', lock=False)
 
     # Filter according to passed in args

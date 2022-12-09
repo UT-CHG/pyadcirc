@@ -3,7 +3,6 @@ import linecache as lc
 import pdb
 from pathlib import Path
 from pprint import pprint
-import tempfile
 from typing import Union, List
 
 import click
@@ -12,15 +11,13 @@ import matplotlib as mpl
 import numpy as np
 import pandas as pd
 from pyadcirc.io.io import read_fort14
-import six
 from InquirerPy import inquirer
 from InquirerPy.base.control import Choice
 from InquirerPy.separator import Separator
 from InquirerPy.validator import EmptyInputValidator, PathValidator
 from prettytable import PrettyTable
-from pyadcirc.configs.fg_config import *
+from pyadcirc.viz.fg_config import FG_config
 from pyadcirc.viz.palettes import *
-from pyfiglet import figlet_format
 
 # See if docker, tapis, or taccjm options are installed for use
 try:
@@ -32,8 +29,7 @@ try:
     images = [str(x) for x in client.images.list()]
     if "<Image: 'georgiastuart/figuregen-serial:latest'>" not in images:
         print("Downloading figuregen image:")
-        docker.images.get("georgiastuart/figuregen-serial:latest")
-
+        client.images.pull("georgiastuart/figuregen-serial:latest")
     docker_flag = True
 except Exception as e:
     docker_flag = False
@@ -1000,20 +996,3 @@ def config():
     pdb.set_trace()
     pprint("Test")
 
-
-@click.group()
-def cli():
-    if colored:
-        six.print_(colored(figlet_format("FIGUREGEN", font="slant"), "blue"))
-    else:
-        six.print_(figlet_format("FIGUREGEN", font="slant"))
-    pass
-
-
-@click.command()
-@click.argument("input_file", type=click.File("r"))
-def run(type: str, input_file: str):
-    pass
-
-
-cli.add_command(config)
