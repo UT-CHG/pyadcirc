@@ -16,18 +16,19 @@ import xarray as xr
 from cartopy import crs, feature
 from cartopy.mpl.gridliner import LATITUDE_FORMATTER, LONGITUDE_FORMATTER
 
+
 def pyplot_mesh(
     data: xr.Dataset,
     var: str,
     data_coords=crs.PlateCarree(),
-    time_var:str = 'time',
-    data_vars: List[str]=['longitude', 'latitude'],
-    vec_data: xr.Dataset=None,
-    vec_vars: List[str]=['longitude', 'latitude', 'u10', 'v10'],
+    time_var: str = "time",
+    data_vars: List[str] = ["longitude", "latitude"],
+    vec_data: xr.Dataset = None,
+    vec_vars: List[str] = ["longitude", "latitude", "u10", "v10"],
     num_vecs: int = 10,
     vec_coords=crs.PlateCarree(),
     save_path: str = None,
-    bounding_box: List[float]=None,
+    bounding_box: List[float] = None,
     timestep: int = 0,
     time: str = None,
     ax: plt.axes = None,
@@ -51,17 +52,17 @@ def pyplot_mesh(
         "linewidth": 2,
     },
     vec_params: dict = {
-        'scale': 300,
-        'linewidth': 0.2,
-        'headlength': 4,
-        'headwidth': 4,
-        'headaxislength': 4,
-        'width': 0.003,
+        "scale": 300,
+        "linewidth": 0.2,
+        "headlength": 4,
+        "headwidth": 4,
+        "headaxislength": 4,
+        "width": 0.003,
     },
-    cmap: str = 'viridis',
+    cmap: str = "viridis",
     colorbar_opts: dict = {
-        'shrink': 0.8,
-    }
+        "shrink": 0.8,
+    },
 ):
     """
     PyPlot Mesh
@@ -79,37 +80,47 @@ def pyplot_mesh(
 
     """
     # Create axis with appropriate coordiante system
-    ax = plt.axes(projection=projection,
-                  facecolor="gray") if ax is None else ax
+    ax = plt.axes(projection=projection, facecolor="gray") if ax is None else ax
 
     # Select timestep we want to plot if specified
     if time is not None:
-        d = data[var].sel({time_var:time}, method='nearest')
+        d = data[var].sel({time_var: time}, method="nearest")
         if vec_data is not None:
-            vec_data = vec_data.sel({time_var:time}, method='nearest')
+            vec_data = vec_data.sel({time_var: time}, method="nearest")
     else:
-        d = data[var].isel({time_var:timestep})
+        d = data[var].isel({time_var: timestep})
         if vec_data is not None:
-            vec_data = vec_data.isel({time_var:timestep})
+            vec_data = vec_data.isel({time_var: timestep})
 
     if bounding_box is not None:
-        d = d.sel({data_vars[0]:slice(bounding_box[0], bounding_box[1]),
-                   data_vars[1]:slice(bounding_box[3], bounding_box[2])})
+        d = d.sel(
+            {
+                data_vars[0]: slice(bounding_box[0], bounding_box[1]),
+                data_vars[1]: slice(bounding_box[3], bounding_box[2]),
+            }
+        )
         if vec_data is not None:
             vec_data = vec_data.sel(
-                    {vec_vars[0]:slice(bounding_box[0], bounding_box[1]),
-                     vec_vars[1]:slice(bounding_box[3], bounding_box[2])})
+                {
+                    vec_vars[0]: slice(bounding_box[0], bounding_box[1]),
+                    vec_vars[1]: slice(bounding_box[3], bounding_box[2]),
+                }
+            )
 
     # Plot main data - Note adcirc met netcdf data should always be in long/lat
     # PlateCarree projection, but the axis plot may be on a different
     # projection, so must specify the transform argument
     if vrange is not None:
-        p = d.plot(ax=ax, transform=data_coords,
-                   vmin=vrange[0], vmax=vrange[1],
-                   cmap=cmap, cbar_kwargs=colorbar_opts)
+        p = d.plot(
+            ax=ax,
+            transform=data_coords,
+            vmin=vrange[0],
+            vmax=vrange[1],
+            cmap=cmap,
+            cbar_kwargs=colorbar_opts,
+        )
     else:
-        p = d.plot(ax=ax, transform=data_coords,
-                   cbar_kwargs=colorbar_opts, cmap=cmap)
+        p = d.plot(ax=ax, transform=data_coords, cbar_kwargs=colorbar_opts, cmap=cmap)
 
     # Plot vector data
     if vec_data is not None:
@@ -118,11 +129,14 @@ def pyplot_mesh(
         long_idxs = np.arange(0, num_lon, int(num_lon / num_vecs) + 1)
         lat_idxs = np.arange(0, num_lat, int(num_lat / num_vecs) + 1)
 
-        vec_data.isel(longitude=long_idxs,
-                      latitude=lat_idxs).plot.quiver(
+        vec_data.isel(longitude=long_idxs, latitude=lat_idxs).plot.quiver(
             transform=vec_coords,
-            x=vec_vars[0], y=vec_vars[1], u=vec_vars[2], v=vec_vars[3],
-            **vec_params)
+            x=vec_vars[0],
+            y=vec_vars[1],
+            u=vec_vars[2],
+            v=vec_vars[3],
+            **vec_params,
+        )
 
     # Add desired features
     for f in features:
@@ -161,10 +175,9 @@ def pyplot_mesh(
     # Set colorbar properties. Note we get the colorbar from the dataset object
     p.colorbar.ax.tick_params(labelsize=12)
 
-    ts = pd.to_datetime(d['time'].item(0))
+    ts = pd.to_datetime(d["time"].item(0))
     title = f"{var} at {ts}" if title is None else title
     ax.set_title(title, **title_style)
 
     if save_path is not None:
         plt.savefig(save_path)
-

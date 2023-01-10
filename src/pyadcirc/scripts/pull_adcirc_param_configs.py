@@ -18,15 +18,15 @@ __license__ = "MIT"
 
 
 ADCIRC_CONFIGS = {}
-URL = ''.join(["https://adcirc.org/home/documentation/",
-               "users-manual-v53/parameter-definitions"])
+URL = "".join(
+    ["https://adcirc.org/home/documentation/", "users-manual-v53/parameter-definitions"]
+)
 
 
 def pull_param_configs(url: str = URL):
     params = {}
     source = urllib.request.urlopen(url).read()
-    rows = bs.BeautifulSoup(source, "lxml").findAll("p",
-                                                    {"class": "MsoNormal"})
+    rows = bs.BeautifulSoup(source, "lxml").findAll("p", {"class": "MsoNormal"})
     for row in rows:
         p_name = row.text.split()[0]
         if "(" in p_name:
@@ -38,8 +38,7 @@ def pull_param_configs(url: str = URL):
 
 @click.command()
 @click.argument("url", type=str, default=URL)
-@click.argument("output_file", type=click.File("w"),
-                default="adcirc_configs.json")
+@click.argument("output_file", type=click.File("w"), default="adcirc_configs.json")
 def scrape(url: str, output_file: str = "adcirc_defs.json"):
     """
     Pull ADCIRC parameter configs by web scraping URL.

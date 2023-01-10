@@ -75,7 +75,7 @@ class SLURMTaskSlot:
     Attributes
     ----------
     host : str
-        Name of compute node on a SLURM execution system. Corresponds to a host 
+        Name of compute node on a SLURM execution system. Corresponds to a host
         listed in the environment variable SLURM_JOB_NODELIST.
     idx : int
         Index of task in total available SLURM task slots. See above for more
@@ -190,14 +190,17 @@ class SLURMTask:
         measured by first instance the process is polled using `get_rc()` with a
         non-negative response, or None if task has not finished yet.
     """
-    def __init__(self,
-            task_id: int,
-            cmnd: str,
-            cores: int=1,
-            pre_process: str=None,
-            post_process: str=None,
-            cdir: str=None,
-            workdir: str=None):
+
+    def __init__(
+        self,
+        task_id: int,
+        cmnd: str,
+        cores: int = 1,
+        pre_process: str = None,
+        post_process: str = None,
+        cdir: str = None,
+        workdir: str = None,
+    ):
 
         self.task_id = task_id
         self.command = cmnd
@@ -377,6 +380,7 @@ class SLURMTaskQueue:
         were invalid, or the amount of resources required to run them was too
         large.
     """
+
     def __init__(
         self,
         commandfile: str,
@@ -421,7 +425,6 @@ class SLURMTaskQueue:
         # Enqueue tasks from json file
         self.enqueue_from_json(commandfile)
 
-
     def __repr__(self):
         completed = sorted([t.task_id for t in self.completed])
         timed_out = sorted([t.task_id for t in self.timed_out])
@@ -445,8 +448,7 @@ class SLURMTaskQueue:
     def _init_task_slots(self):
         """Initialize available task slots from SLURM environment variables"""
         hl = []
-        host_groups = re.split(r",\s*(?![^\[\]]*\])",
-                os.environ["SLURM_JOB_NODELIST"])
+        host_groups = re.split(r",\s*(?![^\[\]]*\])", os.environ["SLURM_JOB_NODELIST"])
         for hg in host_groups:
             splt = hg.split("-")
             h = splt[0] if type(splt) == list else splt
@@ -500,7 +502,7 @@ class SLURMTaskQueue:
     def _start_queued(self):
         """
         Start queued tasks. For all queued, try to find a continuous set of
-        slots equal to the number of cores required for the task. The tasks are 
+        slots equal to the number of cores required for the task. The tasks are
         looped through in decreasing order of number of cores required. If the
         task is to big for the whole set of available slots, it is automatically
         added to the invalid list. Otherwise `_request_slots` is called to see
@@ -577,13 +579,14 @@ class SLURMTaskQueue:
 
         for i, t in enumerate(task_list):
             task = SLURMTask(
-                    self.task_count,
-                    t.pop('cmnd', None),
-                    t.pop('cores', cores),
-                    t.pop('pre_process', None),
-                    t.pop('post_process', None),
-                    t.pop('cdir', None),
-                    t.pop('workdir', self.wordir))
+                self.task_count,
+                t.pop("cmnd", None),
+                t.pop("cores", cores),
+                t.pop("pre_process", None),
+                t.pop("post_process", None),
+                t.pop("cdir", None),
+                t.pop("workdir", self.wordir),
+            )
             self.queue.append(task)
             self.task_count += 1
 

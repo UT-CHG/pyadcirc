@@ -36,25 +36,26 @@ _logger = logging.getLogger(__name__)
 logger = logging.getLogger()
 
 # Read in ADCIRC Parameter Configuration Dictioanry
-with open(str(Path(__file__).resolve().parent / 'configs/adcirc_configs.json'),
-          'r') as ac:
+with open(
+    str(Path(__file__).resolve().parent / "configs/adcirc_configs.json"), "r"
+) as ac:
     ADCIRC_PARAM_DEFS = json.load(ac)
 
 
 @contextmanager
 def timing(label: str):
-  t0 = perf_counter()
-  yield lambda: (label, t1 - t0)
-  t1 = perf_counter()
+    t0 = perf_counter()
+    yield lambda: (label, t1 - t0)
+    t1 = perf_counter()
 
 
-def get_param_def(param:str):
-  try:
-    desc = ADCIRC_PARAM_DEFS[param]
-    pprint.pp(f'{param} = {desc}')
-  except:
-    print(f"Did not find parameter {param}'")
-    pass
+def get_param_def(param: str):
+    try:
+        desc = ADCIRC_PARAM_DEFS[param]
+        pprint.pp(f"{param} = {desc}")
+    except:
+        print(f"Did not find parameter {param}'")
+        pass
 
 
 def deploy_tapis_app():
@@ -89,7 +90,6 @@ def get_bbox(f14: xr.Dataset, scale_x: float = 0.1, scale_y: float = 0.1):
 
     """
 
-
     bounds = [
         [f14["X"].values.min(), f14["X"].values.max()],
         [f14["Y"].values.min(), f14["Y"].values.max()],
@@ -106,4 +106,3 @@ def get_bbox(f14: xr.Dataset, scale_x: float = 0.1, scale_y: float = 0.1):
     ]
 
     return bounds, bbox
-

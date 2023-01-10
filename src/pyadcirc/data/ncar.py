@@ -34,7 +34,7 @@ import requests
 import xarray as xa
 
 NCAR_ENDPOINT = "1e128d3c-852d-11e8-9546-0a6d4e044368"
-TOKEN_PATH = Path.home() / '.globus_token'
+TOKEN_PATH = Path.home() / ".globus_token"
 
 # TODO: Move to utils
 def sizeof_fmt(num, suffix="B"):
@@ -65,7 +65,7 @@ def sizeof_fmt(num, suffix="B"):
     return f"{num:.1f} Yi{suffix}"
 
 
-def init_globus_client(client_id:str, token_path:str=None):
+def init_globus_client(client_id: str, token_path: str = None):
     """Initialize Globus Client
 
     Initialies a globus transfer client through SDK for data transfers. If
@@ -98,15 +98,18 @@ def init_globus_client(client_id:str, token_path:str=None):
     if not Path(token_path).exists():
         client.oauth2_start_flow(refresh_tokens=True)
 
-        print("Please go to this URL and login: {0}".format(
-            client.oauth2_get_authorize_url()))
+        print(
+            "Please go to this URL and login: {0}".format(
+                client.oauth2_get_authorize_url()
+            )
+        )
         auth_code = input("Please enter the code here: ").strip()
         res = client.oauth2_exchange_code_for_tokens(auth_code)
 
         # let's get stuff for the Globus Transfer service
         tk = res.by_resource_server["transfer.api.globus.org"]["refresh_token"]
 
-        with open(Path(token_path).absolute(), 'w') as tk_file:
+        with open(Path(token_path).absolute(), "w") as tk_file:
             tk_file.write(tk)
     else:
         tk = Path(token_path).read_text()
@@ -116,25 +119,28 @@ def init_globus_client(client_id:str, token_path:str=None):
     return client, authorizer
 
 
-
 class NCARDataTransfer(object):
 
-    """Docstring for NCARDataTransfer. """
+    """Docstring for NCARDataTransfer."""
 
-    def __init__(self, client_id:str):
+    def __init__(self, client_id: str):
         """Initialize an NCARDataTransfer object"""
 
         # Initialize client and authorizer
         self.client, self.authorizer = init_globus_client(client_id, TOKEN_PATH)
 
-        self.transfer_client = globus_sdk.TransferClient(
-                authorizer=self.authorizer)
+        self.transfer_client = globus_sdk.TransferClient(authorizer=self.authorizer)
 
         self.transfer_data = None
 
-
-    def list_files(self, ds_id:str, data_types:List[str],
-                   start_date:str, end_date:str, pp:bool=False):
+    def list_files(
+        self,
+        ds_id: str,
+        data_types: List[str],
+        start_date: str,
+        end_date: str,
+        pp: bool = False,
+    ):
         """List NCAR Dataset Files
 
         Returns list of data files available of given `data_type` from
@@ -159,8 +165,7 @@ class NCARDataTransfer(object):
 
         # Get date ranges
         date_range = pd.date_range(
-            *(pd.to_datetime([start_date, end_date]) + \
-                    pd.offsets.MonthEnd()), freq="M"
+            *(pd.to_datetime([start_date, end_date]) + pd.offsets.MonthEnd()), freq="M"
         )
         years = date_range.strftime("%Y").tolist()
         months = date_range.strftime("%Y%m").tolist()
@@ -171,14 +176,16 @@ class NCARDataTransfer(object):
         for year in years_unique:
 
             folder = f"/{ds_id}/{year}"
-            files = self.transfer_client.operation_ls(
-                    NCAR_ENDPOINT, path=folder)
+            files = self.transfer_client.operation_ls(NCAR_ENDPOINT, path=folder)
 
             for idx, m in enumerate(months):
                 if years[idx] == year:
                     for d in data_types:
-                        f_info += [(folder, f["name"], f["size"]) for f in \
-                                files if fnmatch(f["name"], f"{d}.{m}.grb2")]
+                        f_info += [
+                            (folder, f["name"], f["size"])
+                            for f in files
+                            if fnmatch(f["name"], f"{d}.{m}.grb2")
+                        ]
 
         f_info = [{"name": x[1], "size": x[2], "folder": x[0]} for x in f_info]
 
@@ -191,11 +198,15 @@ class NCARDataTransfer(object):
 
         return f_info
 
-
-    def stage(self,
-              ds_id:str, data_types:List[str],
-              target_endpoint:str, target_path:str,
-              start_date:str, end_date:str):
+    def stage(
+        self,
+        ds_id: str,
+        data_types: List[str],
+        target_endpoint: str,
+        target_path: str,
+        start_date: str,
+        end_date: str,
+    ):
         """Stage NCAR Data Transfer
 
         Stages data for a globus data transfer from an NCAR dataset globus
@@ -255,7 +266,3 @@ class NCARDataTransfer(object):
 
         """
         return self.transfer_client.submit_transfer(transfer_data)
-
-
-
-

@@ -68,7 +68,7 @@ def main(args):
     """
     sub_command = args[1]
 
-    if sub_command == 'merge_output':
+    if sub_command == "merge_output":
         merge_output_entry(args[2:])
     else:
-        raise ValueError('Unknown sub command :{sub_command}')
+        raise ValueError("Unknown sub command :{sub_command}")

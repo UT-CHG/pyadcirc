@@ -10,12 +10,16 @@ import imageio as iio
 import numpy as np
 from pygifsicle import optimize
 
-def generate_gif(name:str, gen_image: Callable,
-                 args: List,
-                 repeat: Union[List, int]=None,
-                 figsize: Tuple=(12,6),
-                 build_dir: str=None,
-                 hold_end: float=0.25):
+
+def generate_gif(
+    name: str,
+    gen_image: Callable,
+    args: List,
+    repeat: Union[List, int] = None,
+    figsize: Tuple = (12, 6),
+    build_dir: str = None,
+    hold_end: float = 0.25,
+):
     """
     Generate GIF
 
@@ -54,8 +58,8 @@ def generate_gif(name:str, gen_image: Callable,
         for j in range(repeat[i]):
             gif_images.append(filename)
 
-    if hold_end>0:
-        num_extra = int(hold_end*len(gif_images))
+    if hold_end > 0:
+        num_extra = int(hold_end * len(gif_images))
         for i in range(num_extra):
             gif_images.append(filename)
 
@@ -69,5 +73,3 @@ def generate_gif(name:str, gen_image: Callable,
         Path(i).unlink()
 
     return gif_path
-
-
