@@ -6,6 +6,7 @@ import pdb
 import click
 
 import pandas as pd
+from pathlib import Path
 from pyadcirc.data import noaa
 from pyadcirc.viz import asciichart as ac
 from pandas.errors import EmptyDataError
@@ -36,30 +37,61 @@ def data():
     default="metadata",
     type=click.Choice(list(noaa.PRODUCTS.keys())),
 )
-@click.option("--begin_date", "-b", type=str, default="20000101")
-@click.option("--end_date", "-e", type=str, default="20000102")
 @click.option(
-    "--output_format", "-o", type=click.Choice(["csv", "json", "xml"]), default="csv"
+    "--begin_date",
+    "-b",
+    type=str)
+@click.option(
+    "--end_date",
+    "-e",
+    type=str)
+@click.option(
+    "--date",
+    "-d",
+    type=click.Choice(["Today", "Latest", "Recent"], case_sensitive=False),
+    )
+@click.option(
+    "--date_range",
+    "-r",
+    type=float
+    )
+@click.option(
+    "--output_file",
+    "-o",
+    type=str
 )
-@click.option("--datum", "-d", type=str, default="msl")
+@click.option(
+    "--output_format",
+    "-f",
+    type=click.Choice(noaa.FORMATS.keys(), case_sensitive=False),
+    default="csv",
+)
+@click.option(
+    "--datum",
+    "-d",
+    default="MSL",
+    type=click.Choice(noaa.DATUMS.keys(), case_sensitive=False),
+)
 @click.option(
     "--time_zone",
     "-z",
-    default="csv",
+    default="lst_ldt",
     help="Time zone",
-    type=click.Choice(["gmt", "lst", "lst_ldt"]),
+    type=click.Choice(noaa.TIME_ZONES.keys(), case_sensitive=False),
 )
 @click.option(
     "--units",
     "-u",
-    type=str,
-    type=click.Choice(["metric", "english"]),
+    type=click.Choice(noaa.UNITS.keys(), case_sensitive=False),
     default="metric",
 )
 @click.option(
-    "--interval", "-n", type=str, default="6", type=click.Choice(noaa.INTERVALS)
+    "--interval",
+    "-n",
+    default="6",
+    type=click.Choice(noaa.INTERVALS, case_sensitive=False)
 )
-@click.option("--application", "-a", type=str, default="pyadcirc")
+@click.option("--application", "-a", type=str, default="pyadcirc-cli")
 @click.option("--output_file", "-f", type=str, default=None)
 @click.option("--workers", "-w", type=int, default=4)
 @click.option("--print_graph", "-g", is_flag=True, default=True)
@@ -68,11 +100,14 @@ def get(
     product,
     begin_date=None,
     end_date=None,
+    date=None,
+    date_range=None,
     output_file=None,
     output_format="csv",
     datum="msl",
+    time_zone="gmt",
     units="metric",
-    application="pyadcirc",
+    application="pyadcirc-cli",
     interval=6,
     threshold=1.0,
     workers=4,
@@ -98,9 +133,9 @@ def get(
                 output_format=output_format,
                 datum=datum,
                 time_zone=time_zone,
-                units=metric,
+                units=units,
                 interval=interval,
-                application="pyadcirc-cli",
+                application=application,
                 workers=workers,
                 )
         except EmptyDataError as e:
@@ -122,15 +157,65 @@ def get(
 
 @data.command()
 @click.argument("station_id", type=int)
-@click.option("--begin_date", "-b", type=str, default="20000101")
-@click.option("--end_date", "-e", type=str, default="20000102")
-@click.option("--input_file", "-i", type=str, default=None)
-@click.option("--output_file", "-f", type=str, default=None)
-@click.option("--output_format", "-o", type=str, default="csv")
-@click.option("--datum", "-d", type=str, default="msl")
-@click.option("--units", "-u", type=str, default="metric")
-@click.option("--application", "-a", type=str, default="pyadcirc")
-@click.option("--interval", "-n", type=int, default=6)
+@click.option(
+    "--begin_date",
+    "-b",
+    type=str)
+@click.option(
+    "--end_date",
+    "-e",
+    type=str)
+@click.option(
+    "--date",
+    "-d",
+    type=click.Choice(["Today", "Latest", "Recent"], case_sensitive=False),
+    )
+@click.option(
+    "--date_range",
+    "-r",
+    type=float
+    )
+@click.option(
+    "--input_file",
+    "-i",
+    type=str
+)
+@click.option(
+    "--output_file",
+    "-o",
+    type=str
+)
+@click.option(
+    "--output_format",
+    "-f",
+    type=click.Choice(noaa.FORMATS.keys(), case_sensitive=False),
+    default="csv",
+)
+@click.option(
+    "--datum",
+    "-d",
+    default="MSL",
+    type=click.Choice(noaa.DATUMS.keys(), case_sensitive=False),
+)
+@click.option(
+    "--time_zone",
+    "-z",
+    default="lst_ldt",
+    help="Time zone",
+    type=click.Choice(noaa.TIME_ZONES.keys(), case_sensitive=False),
+)
+@click.option(
+    "--units",
+    "-u",
+    type=click.Choice(noaa.UNITS.keys(), case_sensitive=False),
+    default="metric",
+)
+@click.option(
+    "--interval",
+    "-n",
+    default="6",
+    type=click.Choice(noaa.INTERVALS, case_sensitive=False)
+)
 @click.option("--threshold", "-t", type=float, default=1.0)
 @click.option("--workers", "-w", type=int, default=4)
 @click.option("--interactive/--no-interactive", "-v", is_flag=True, default=True)
@@ -138,10 +223,13 @@ def find_events(
     station_id,
     begin_date=None,
     end_date=None,
+    date='Recent',
+    date_range=None,
     input_file=None,
     output_file=None,
     output_format="csv",
     datum="msl",
+    time_zone="lst_ldt",
     units="metric",
     interval=6,
     application="pyadcirc",
@@ -153,21 +241,33 @@ def find_events(
     Find storm surge events
     """
     if input_file is None:
-        data = noaa.get_storm_surge_events(
+        data = noaa.pull_dataset(
             station_id,
-            begin_date,
-            end_date,
-            threshold=threshold,
+            begin_date=begin_date,
+            end_date=end_date,
+            date=date,
+            date_range=date_range,
+            output_format="csv",
+            datum=datum,
+            time_zone=time_zone,
+            units=units,
+            interval="6",
+            application=application,
             workers=workers,
-        )
+            )
     else:
         data = pd.read_csv(input_file)
+
+    if output_file is not None:
+        raw_data_path = f"{Path(output_file).with_suffix('')}-raw.{output_format}"
+        _save_output(data, raw_data_path, output_format)
 
     data = noaa.wicks_2017_algo(
         data, trigger_threshold=threshold, interactive=interactive
     )
 
-    _save_output(data, output_file, output_format)
+    if data is not None:
+        _save_output(data, output_file, output_format)
 
     return data
 
@@ -224,3 +324,6 @@ def find_events(
 #
 # if __name__ == "__main__":
 #     get.main()
+
+
+

@@ -71,6 +71,7 @@ def text_line_plot(
         sys.stdout.flush()
         time.sleep(0.05)
 
+    res = 'N'
     if hold_end:
         if prompt is None:
             _ = input("\n============ Press <Enter> to continue ============\n")
@@ -80,3 +81,5 @@ def text_line_plot(
     if clear:
         for j in range(delete_lines):
             print(str.ljust("\033[A", 100, " ") + "\033[A")
+
+    return res

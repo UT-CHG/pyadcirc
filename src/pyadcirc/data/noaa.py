@@ -7,14 +7,12 @@ See NOAA Websites for more information:
 """
 import concurrent.futures
 import pdb
-import subprocess
 from datetime import datetime, timedelta
 from io import StringIO
 from pathlib import Path
 from alive_progress import alive_bar
 from pyadcirc.viz import asciichart as ac
 
-import noaa_coops as nc
 import numpy as np
 import pandas as pd
 import requests
@@ -38,32 +36,32 @@ PRODUCTS = {
     "water_level": {
         "group": "tide",
         "desc": "Preliminary or verified 6-minute interval water levels, depending on data availability.",
-        "max_interval": timdelta(days=29),
+        "max_interval": timedelta(days=29),
     },
     "hourly_height": {
         "group": "tide",
         "desc": "Verified hourly height water level data for the station.",
-        "max_interval": timdelta(days=364),
+        "max_interval": timedelta(days=364),
     },
     "high_low": {
         "group": "tide",
         "desc": "Verified high tide / low tide water level data for the station.",
-        "max_interval": timdelta(days=10 * 364 - 1),
+        "max_interval": timedelta(days=10 * 364 - 1),
     },
     "daily_mean": {
         "group": "tide",
         "desc": "Verified daily mean water level data for the station.\nNote!Great Lakes stations only. Only available with time_zone=LST",
-        "max_interval": timdelta(days=10 * 364 - 1),
+        "max_interval": timedelta(days=10 * 364 - 1),
     },
     "monthly_mean": {
         "group": "tide",
         "desc": "Verified monthly mean water level data for the station.",
-        "max_interval": timdelta(days=200 * 364 - 1),
+        "max_interval": timedelta(days=200 * 364 - 1),
     },
     "one_minute_water_level": {
         "group": "tide",
         "desc": "Preliminary 1-minute interval water level data for the station.",
-        "max_interval": timdelta(days=4),
+        "max_interval": timedelta(days=4),
     },
     "predictions": {
         "group": "tide",
@@ -175,7 +173,7 @@ FORMATS = {
 NOAA_STATIONS = pd.read_json(
     Path(Path(__file__).parents[1] / "configs/noaa_stations.json")
 )
-STATION_IDS = [int(x) for x["ID"] in NOAA_STATIONS]
+STATION_IDS = [int(x) for x in NOAA_STATIONS['ID'].dropna()]
 
 
 def parse_f15_station_list(region: str):
@@ -328,7 +326,7 @@ def divide_date_range(
     elif begin_date is not None and end_date is not None:
         params["begin_date"] = b_dt_str
         params["end_date"] = e_dt_str
-        time_len = b_dt - e_dt
+        time_len = e_dt - b_dt
     elif end_date is not None and date_range is not None:
         params["end_date"] = dt_date(end_date).strftime("%Y%m%d")
         params["range"] = int(date_range)
@@ -390,8 +388,8 @@ def divide_date_range(
             next_date = current_date + max_interval
 
             p = params.copy()
-            p["begin_date"] = current_date
-            p["end_date"] = next_date
+            p["begin_date"] = current_date.strftime("%Y%m%d")
+            p["end_date"] = next_date.strftime("%Y%m%d")
             params_list.append(p)
 
             current_date = next_date
@@ -409,7 +407,7 @@ def check_station_id(params: dict, station_id: int):
         url = "Find available statiosn at http://tidesandcurrents.noaa.gov/map/"
         raise ValueError(f"Invalid station id {station_id}. {url}")
 
-    params[station_id] = station_id
+    params['station'] = station_id
 
     return params
 
@@ -422,7 +420,7 @@ def check_datum(params: dict, datum: str):
     https://api.tidesandcurrents.noaa.gov/api/prod/#station to process args
     """
     avail = DATUMS.keys()
-    if datum.capitalize() not in avail:
+    if datum.upper() not in avail:
         raise ValueError(f"Invalid datum {datum}. Possible values: {avail}")
 
     params["datum"] = datum
@@ -438,7 +436,7 @@ def check_units(params: dict, units: str):
     https://api.tidesandcurrents.noaa.gov/api/prod/#station to process args
     """
     avail = UNITS.keys()
-    if units not in avail:
+    if units.lower() not in avail:
         raise ValueError(f"Invalid units {units}. Possible values: {avail}")
 
     params["units"] = units
@@ -454,7 +452,7 @@ def check_tz(params: dict, time_zone: str):
     https://api.tidesandcurrents.noaa.gov/api/prod/#station to process args
     """
     avail = TIME_ZONES.keys()
-    if time_zone not in avail:
+    if time_zone.lower() not in avail:
         raise ValueError(f"Invalid time_zone {time_zone}. Possible values: {avail}")
 
     params["time_zone"] = time_zone
@@ -470,11 +468,11 @@ def check_interval(params: dict, interval: str):
     https://api.tidesandcurrents.noaa.gov/api/prod/#station to process args
     """
     avail = INTERVALS
-    if interval not in avail:
+    if interval.lower() not in avail:
         raise ValueError(f"Invalid interval {interval}. Possible values: {avail}")
 
-    params["interval"] = interval
-    if params["product"] == "predictions":
+    config = PRODUCTS[params['product']]
+    if params["product"] == "predictions" or config['group'] == 'met':
         params["interval"] = interval
 
     return params
@@ -488,7 +486,7 @@ def check_format(params: dict, output_format: str):
     https://api.tidesandcurrents.noaa.gov/api/prod/#station to process args
     """
     avail = FORMATS.keys()
-    if output_format not in avail:
+    if output_format.lower() not in avail:
         raise ValueError(
             f"Invalid output format {output_format}. Possible values: {avail}"
         )
@@ -506,6 +504,7 @@ def check_product(params: dict, product: str):
     https://api.tidesandcurrents.noaa.gov/api/prod/#station to process args
     """
     avail = PRODUCTS.keys()
+    product = product.lower()
     if product not in avail:
         raise ValueError(f"Invalid output format {product}. Possible values: {avail}")
 
@@ -562,17 +561,14 @@ def get_tide_data(
     params = check_units(params, units)
     params = check_tz(params, time_zone)
     params = check_format(params, output_format)
+    params = check_interval(params, interval)
     params["application"] = application
     param_list = divide_date_range(params, begin_date, end_date, date, date_range)
     data = process_date_range(param_list)
 
-    if data is not None:
-        data.rename(lambda x: x.strip(), axis=1, inplace=True)
-        data["Date Time"] = pd.to_datetime(data["Date Time"])
-        data.set_index("Date Time", inplace=True)
-        data = data.dropna()
-        data = data[data.index >= dt_date(begin_date)]
-        data = data[data.index < dt_date(end_date)]
+    # if data is not None:
+    #     data = data[data.index >= dt_date(begin_date)]
+    #     data = data[data.index < dt_date(end_date)]
 
     return data
 
@@ -613,10 +609,9 @@ def _make_request(params):
 def process_date_range(params, workers=8):
     # Call the command line tool in parallel on each interval
     df_list = []
-    pdb.set_trace()
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
         future_to_input = {
-            executor.submit(_make_request, p, capture_output=True): p for p in params
+            executor.submit(_make_request, p): p for p in params
         }
         with alive_bar(
             len(future_to_input),
@@ -630,16 +625,9 @@ def process_date_range(params, workers=8):
                 input = future_to_input[future]
                 try:
                     df = future.result()
-                    # output = future.result().stdout
-                    # df = pd.read_csv(
-                    #     StringIO(output.decode("utf-8")),
-                    #     delimiter=",",
-                    # )
-                    pdb.set_trace()
                     df.rename(lambda x: x.strip(), axis=1, inplace=True)
                     df["Date Time"] = pd.to_datetime(df["Date Time"])
                     df.set_index("Date Time", inplace=True)
-                    df = df.dropna()
                     df_list.append(df)
                 except KeyError:
                     print(f"{input} generated no data")
@@ -654,7 +642,7 @@ def process_date_range(params, workers=8):
     # Concatenate the data
     full_df = None
     if len(df_list) > 0:
-        full_df = pd.concat(df_list, sort=True).dropna()
+        full_df = pd.concat(df_list, sort=True)
 
     return full_df
 
@@ -692,28 +680,6 @@ def dt_date(date, fmt="%Y%m%d"):
     return date
 
 
-def pull_dataset(
-    station_id, start_date, end_date, products=["water_level", "predictions"], **kwargs
-):
-    """
-    Pull Dataset
-
-    Method to compile groups of datasets into one. Encode logic on how to merge
-    different NOAA datasets accross different intervals here.
-    """
-    data = get_tide_data(
-        start_date, end_date, station_id, "water_level", "csv", **kwargs
-    )
-    preds = get_tide_data(
-        start_date, end_date, station_id, "predictions", "csv", **kwargs
-    )
-    if data is None or preds is None:
-        raise EmptyDataError("No data found")
-    data["Prediction"] = preds["Prediction"][data.index]
-
-    return data
-
-
 def wicks_2017_algo(
     data,
     trigger_threshold=1.0,
@@ -728,6 +694,7 @@ def wicks_2017_algo(
 
     TODO: Document
     """
+    data['Date Time'] = data.index
     continuity_threshold = continuity_threshold * trigger_threshold
     data["Difference"] = abs(data["Prediction"] - data["Water Level"])
     data["TriggerThreshold"] = data["Difference"].apply(lambda x: x > trigger_threshold)
@@ -745,7 +712,8 @@ def wicks_2017_algo(
     groups = data["Group"].values
     unique_groups = list(set(groups))
     datetimes = data["Date Time"].values
-    while index <= unique_groups[-1]:
+    event_idx = 0
+    while index < unique_groups[-1]:
         group_idxs = np.where(groups == index)[0]
         times = pd.to_datetime(datetimes[group_idxs])
         duration = (times.max() - times.min()).seconds
@@ -774,21 +742,17 @@ def wicks_2017_algo(
             ng = len(unique_groups)
 
             previous_index = unique_groups[unique_idx - 1]
-            gt = groups >= previous_index
+            new_group_idxs = groups >= previous_index
 
-            new_index = None
             next_index = None
             if (unique_idx + 2) < ng:
-                new_index = unique_groups[unique_idx + 2]
                 next_index = unique_groups[unique_idx + 1]
             elif (unique_idx + 1) < ng:
                 next_index = unique_groups[unique_idx + 1]
 
             if next_index is not None:
-                lt = groups <= next_index
-                new_group_idxs = np.logical_and(lt, gt)
-            else:
-                new_group_idxs = lt
+                new_group_idxs = np.logical_and(new_group_idxs, groups <= next_index)
+
             groups[new_group_idxs] = previous_index
             if interactive:
                 if next_index is not None:
@@ -805,7 +769,8 @@ def wicks_2017_algo(
                     hold_end=False,
                     scale_to_fit=True,
                 )
-            index = new_index
+            if (unique_idx + 2) < ng:
+                index = unique_groups[unique_idx + 2]
         else:
             index += 2
             found_idxs = np.where(groups == previous_index)[0]
@@ -831,10 +796,11 @@ def wicks_2017_algo(
                 ]
             )
 
-            groups[new_group_idxs] = previous_index
-
             # Add event to found events
-            event = [pd.to_datetime(datetimes[found_idxs]), found_idxs]
+            # data.iloc[found_idxs]["Event Number"] = event_idx
+            event = data.iloc[found_idxs].copy()
+            event["Event Number"] = event_idx
+            event.set_index("Date Time", inplace=True)
             if interactive:
                 hrs = pd.to_timedelta(6 * len(found_idxs), "m").seconds / (60 * 60)
                 response = ac.text_line_plot(
@@ -848,9 +814,35 @@ def wicks_2017_algo(
                     scale_to_fit=True,
                     prompt="\n ==== Keep event? (Y/N) ==== \n",
                 )
-                if response == "Y":
+                if response.strip().upper() == "Y":
                     found_events.append(event)
+                    event_idx += 1
             else:
                 found_events.append(event)
+                event_idx += 1
+
+    if len(found_events) > 0:
+        found_events = pd.concat(found_events)
+    else:
+        found_events = None
 
     return found_events
+
+
+def pull_dataset(
+    station_id, products=["water_level", "predictions"], **kwargs
+):
+    """
+    Pull Dataset
+    Method to compile groups of datasets into one. Encode logic on how to merge
+    different NOAA datasets accross different intervals here.
+    """
+    data = get_tide_data(station_id, product="water_level", **kwargs)
+    preds = get_tide_data(station_id, "predictions", **kwargs)
+
+    if data is None or preds is None:
+        raise EmptyDataError("No data found")
+
+    data = data.merge(preds, on='Date Time', how='left')
+
+    return data
