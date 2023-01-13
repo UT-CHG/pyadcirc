@@ -89,16 +89,20 @@ def get(
     elif product in ["water_level", "predictions"]:
         try:
             data = noaa.get_tide_data(
-                begin_date,
-                end_date,
                 station_id,
-                product,
-                output_format,
+                product=product,
+                begin_date=begin_date,
+                end_date=end_date,
+                date=date,
+                date_range=date_range,
+                output_format=output_format,
                 datum=datum,
-                units=units,
-                application=application,
+                time_zone=time_zone,
+                units=metric,
                 interval=interval,
-            )
+                application="pyadcirc-cli",
+                workers=workers,
+                )
         except EmptyDataError as e:
             print(e)
             return None

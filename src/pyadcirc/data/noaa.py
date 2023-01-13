@@ -23,8 +23,6 @@ from pandas.errors import EmptyDataError
 from pyadcirc.utils import get_bbox
 
 # information from https://api.tidesandcurrents.noaa.gov/api/prod/#station
-
-
 DATE_TIME = {
     "begin_date": "Use with either end_date to express an explicit range, or with range to express a range (in hours) of time starting from a certain date.",
     "end_date": "Use with eitehr begin_date to express an explicity range, or with range to express a range (in hours) of time ending on a certan date.",
@@ -40,26 +38,32 @@ PRODUCTS = {
     "water_level": {
         "group": "tide",
         "desc": "Preliminary or verified 6-minute interval water levels, depending on data availability.",
+        "max_interval": timdelta(days=29),
     },
     "hourly_height": {
         "group": "tide",
         "desc": "Verified hourly height water level data for the station.",
+        "max_interval": timdelta(days=364),
     },
     "high_low": {
         "group": "tide",
         "desc": "Verified high tide / low tide water level data for the station.",
+        "max_interval": timdelta(days=10 * 364 - 1),
     },
     "daily_mean": {
         "group": "tide",
         "desc": "Verified daily mean water level data for the station.\nNote!Great Lakes stations only. Only available with time_zone=LST",
+        "max_interval": timdelta(days=10 * 364 - 1),
     },
     "monthly_mean": {
         "group": "tide",
         "desc": "Verified monthly mean water level data for the station.",
+        "max_interval": timdelta(days=200 * 364 - 1),
     },
     "one_minute_water_level": {
         "group": "tide",
         "desc": "Preliminary 1-minute interval water level data for the station.",
+        "max_interval": timdelta(days=4),
     },
     "predictions": {
         "group": "tide",
@@ -105,19 +109,21 @@ PRODUCTS = {
         "group": "met",
         "desc": "Salinity and specific gravity data for the station.",
     },
-    "currents": {
-        "group": "cur",
-        "desc": "Currents data for the station. Note! Default data interval is 6-minute interval data.Use with “interval=h” for hourly data",
-    },
-    "currents_predictions": {
-        "group": "cur",
-        "desc": "Currents prediction data for the stations. Note! See Interval for options available and data length limitations.",
-    },
-    "ofs_water_level": {
-        "group": "ofs",
-        "desc": "Currents data for the station. Note! Default data interval is 6-minute interval data.Use with “interval=h” for hourly data",
-    },
 }
+# In the future support currents data and OFS data
+#     "currents": {
+#         "group": "cur",
+#         "desc": "Currents data for the station. Note! Default data interval is 6-minute interval data.Use with “interval=h” for hourly data",
+#     },
+#     "currents_predictions": {
+#         "group": "cur",
+#         "desc": "Currents prediction data for the stations. Note! See Interval for options available and data length limitations.",
+#     },
+#     "ofs_water_level": {
+#         "group": "ofs",
+#         "desc": "Currents data for the station. Note! Default data interval is 6-minute interval data.Use with “interval=h” for hourly data",
+#     },
+# }
 
 DATUMS = {
     "CRD": {
@@ -165,42 +171,11 @@ FORMATS = {
 }
 
 
-def check_date_range(begin_date, end_date, interval):
-    begin_date = datetime.strptime(begin_date, "%Y-%m-%d")
-    end_date = datetime.strptime(end_date, "%Y-%m-%d")
-    interval = interval.lower()
-    if interval == "1-minute":
-        if (end_date - begin_date) > timedelta(days=4):
-            raise ValueError(
-                "1-minute interval data - Data length is limited to 4 days"
-            )
-    elif interval == "6-minute":
-        if (end_date - begin_date) > timedelta(days=30):
-            raise ValueError(
-                "6-minute interval data - Data length is limited to 1 month"
-            )
-    elif interval == "hourly":
-        if (end_date - begin_date) > timedelta(days=365):
-            raise ValueError("Hourly interval data - Data length is limited to 1 year")
-    elif interval == "high/low":
-        if (end_date - begin_date) > timedelta(days=365):
-            raise ValueError("High/Low data - Data length is limited to 1 year")
-    elif interval == "daily means":
-        if (end_date - begin_date) > timedelta(days=3650):
-            raise ValueError("Daily Means data - Data length is limited to 10 years")
-    elif interval == "monthly means":
-        if (end_date - begin_date) > timedelta(days=365 * 200):
-            raise ValueError("Monthly Means data - Data length is limited to 200 years")
-    else:
-        raise ValueError("Invalid interval")
-
-
 # Path to json file with noaa station data pulled from website
 NOAA_STATIONS = pd.read_json(
     Path(Path(__file__).parents[1] / "configs/noaa_stations.json")
 )
-
-PRODUCTS = {"water_level": "waterlevels", "predictions": "noaatidepredictions"}
+STATION_IDS = [int(x) for x["ID"] in NOAA_STATIONS]
 
 
 def parse_f15_station_list(region: str):
@@ -298,8 +273,8 @@ def get_station_metadata(station_id: int):
     return station
 
 
-def check_time_window(
-    params: dict, begin_date: datetime, end_date: datetime, date: datetime, range: int
+def divide_date_range(
+    params: dict, begin_date: datetime, end_date: datetime, date: datetime, date_range: int
 ) -> dict:
     """
     Check time window
@@ -338,33 +313,216 @@ def check_time_window(
     >>> print(params)
     {'begin_date': '2022-01-01', 'end_date': '2022-02-01'}
     """
-    if begin_date is not None and rnge is not None:
-        params["begin_date"] = dt_date(begin_date).strftime("%Y%m%d")
-        params["range"] = rnge
+    time_len = None
+    b_dt = None if begin_date is None else dt_date(begin_date)
+    b_dt_str = None if begin_date is None else b_dt.strftime("%Y%m%d")
+    e_dt = None if end_date is None else dt_date(end_date)
+    e_dt_str = None if end_date is None else e_dt.strftime("%Y%m%d")
+
+    # Check valid combination of parameters is sepcified
+    if begin_date is not None and date_range is not None:
+        params["begin_date"] = b_dt_str
+        params["range"] = int(date_range)
+        time_len = timedelta(hours=date_range)
+        e_dt = b_dt + time_len
     elif begin_date is not None and end_date is not None:
-        params["begin_date"] = dt_date(begin_date).strftime("%Y%m%d")
+        params["begin_date"] = b_dt_str
+        params["end_date"] = e_dt_str
+        time_len = b_dt - e_dt
+    elif end_date is not None and date_range is not None:
         params["end_date"] = dt_date(end_date).strftime("%Y%m%d")
-    elif end_date is not None and rnge is not None:
-        params["end_date"] = dt_date(end_date).strftime("%Y%m%d")
-        params["range"] = int(rnge)
+        params["range"] = int(date_range)
+        time_len = timedelta(hours=date_range)
+        b_dt = e_dt - time_len
     elif date is not None:
-        params["date"] = dt_date(date).strftime("%Y%m%d")
-    elif rnge is not None:
-        params["range"] = int(rnge)
+        if (
+            params["product"]
+            not in ["water_level", "one_minut_water_level", "predictions"]
+            or PRODUCTS[params["product"]]["group"] == "met"
+        ):
+            avail = ["TODAY", "LATEST", "RECENT"]
+            if date.capitalize() not in ["TODAY", "LATEST", "RECENT"]:
+                raise ValueError(f"Invalid date specified. Must be in {avail}")
+            params["date"] = dt_date(date).strftime("%Y%m%d")
+        else:
+            raise ValueError(
+                f'"Date" Param only available for preliminary water level data nd met products'
+            )
+        # Requests with "date" will always be satisfied in one request
+        # Because time window is <= 4 days always
+        return [params]
+    elif date_range is not None:
+        # TODO: Code the following logic:
+        # • If used alone, only available for preliminary water level data, meteorological data
+        # • If used with a historical begin or end date, may be used with verified data
+        params["range"] = int(date_range)
+        time_len = timedelta(hours=date_range)
+        e_dt = datetime.now()
+        b_dt = e_dt - timedelta(hours=date_range)
     else:
         raise ValueError("No valid date range specified")
+
+    config = PRODUCTS[params["product"]]
+
+    # If max interval key in config, then pre-configured interval for product
+    max_interval = config.get("max_interval")
+    if max_interval is None:
+        if config["group"] == "met":
+            if params["interval"] == "h":
+                max_interval = timedelta(days=364)
+            elif params["interval"] == "6":
+                max_interval = timedelta(days=29)
+            else:
+                raise ValueError("Met products can only have intervals [6, h]")
+        elif params["product"] == 'predictions':
+            if params["interval"] in ["1", "5", "6", "10", "15", "30"]:
+                max_interval = timedelta(days=29)
+            else:
+                max_interval = timedelta(days=364)
+
+    if time_len >= max_interval:
+        # Divide the date range into chunks of one month intervals
+        params_list = []
+        current_date = b_dt
+        for k in ["begin_date", "end_date", "date", "range"]:
+            params.pop(k, None)
+        while current_date < e_dt:
+            next_date = current_date + max_interval
+
+            p = params.copy()
+            p["begin_date"] = current_date
+            p["end_date"] = next_date
+            params_list.append(p)
+
+            current_date = next_date
+
+        return params_list
+    else:
+        return [params]
+
+
+def check_station_id(params: dict, station_id: int):
+    """
+    Check Staion ID
+    """
+    if station_id not in STATION_IDS:
+        url = "Find available statiosn at http://tidesandcurrents.noaa.gov/map/"
+        raise ValueError(f"Invalid station id {station_id}. {url}")
+
+    params[station_id] = station_id
+
+    return params
+
+
+def check_datum(params: dict, datum: str):
+    """
+    Check datum
+
+    TODO: add logic checking according to
+    https://api.tidesandcurrents.noaa.gov/api/prod/#station to process args
+    """
+    avail = DATUMS.keys()
+    if datum.capitalize() not in avail:
+        raise ValueError(f"Invalid datum {datum}. Possible values: {avail}")
+
+    params["datum"] = datum
+
+    return params
+
+
+def check_units(params: dict, units: str):
+    """
+    Check units
+
+    TODO: add logic checking according to
+    https://api.tidesandcurrents.noaa.gov/api/prod/#station to process args
+    """
+    avail = UNITS.keys()
+    if units not in avail:
+        raise ValueError(f"Invalid units {units}. Possible values: {avail}")
+
+    params["units"] = units
+
+    return params
+
+
+def check_tz(params: dict, time_zone: str):
+    """
+    Check Time Zone
+
+    TODO: add logic checking according to
+    https://api.tidesandcurrents.noaa.gov/api/prod/#station to process args
+    """
+    avail = TIME_ZONES.keys()
+    if time_zone not in avail:
+        raise ValueError(f"Invalid time_zone {time_zone}. Possible values: {avail}")
+
+    params["time_zone"] = time_zone
+
+    return params
+
+
+def check_interval(params: dict, interval: str):
+    """
+    Check Interval
+
+    TODO: add logic checking according to
+    https://api.tidesandcurrents.noaa.gov/api/prod/#station to process args
+    """
+    avail = INTERVALS
+    if interval not in avail:
+        raise ValueError(f"Invalid interval {interval}. Possible values: {avail}")
+
+    params["interval"] = interval
+    if params["product"] == "predictions":
+        params["interval"] = interval
+
+    return params
+
+
+def check_format(params: dict, output_format: str):
+    """
+    Check Output Format
+
+    TODO: add logic checking according to
+    https://api.tidesandcurrents.noaa.gov/api/prod/#station to process args
+    """
+    avail = FORMATS.keys()
+    if output_format not in avail:
+        raise ValueError(
+            f"Invalid output format {output_format}. Possible values: {avail}"
+        )
+
+    params["format"] = output_format
+
+    return params
+
+
+def check_product(params: dict, product: str):
+    """
+    Check Output Format
+
+    TODO: add logic checking according to
+    https://api.tidesandcurrents.noaa.gov/api/prod/#station to process args
+    """
+    avail = PRODUCTS.keys()
+    if product not in avail:
+        raise ValueError(f"Invalid output format {product}. Possible values: {avail}")
+
+    params["product"] = product
 
     return params
 
 
 def get_tide_data(
     station_id,
-    product,
+    product='predictions',
     begin_date=None,
     end_date=None,
-    date=None,
-    range=None,
+    date='RECENT',
+    date_range=None,
     output_format="csv",
+    datum="msl",
     time_zone="lst_ldt",
     units="metric",
     application="pyadcirc",
@@ -398,101 +556,67 @@ def get_tide_data(
     product, and output_format as arguments. For example:
     >>> response = get_tide_data("20210101", "20210105", "9447130", "water_level", "csv")
     """
-    params = {}
-    params = check_time_window({}, begin_date, end_date, date, rnge)
-    begin_date = dt_date(begin_date)
-    end_date = dt_date(end_date)
-    if (end_date - begin_date).days < 30:
-        # Build the URL for the API request
-        url = "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter"
-        params = {
-            "begin_date": begin_date.strftime("%Y%m%d"),
-            "end_date": end_date.strftime("%Y%m%d"),
-            "station": station_id,
-            "product": product,
-            "datum": datum,
-            "units": units,
-            "time_zone": time_zone,
-            "application": application,
-            "format": output_format,
-        }
-        if product == "predictions":
-            params["interval"] = interval
+    params = check_station_id({}, station_id)
+    params = check_product(params, product)
+    params = check_datum(params, datum)
+    params = check_units(params, units)
+    params = check_tz(params, time_zone)
+    params = check_format(params, output_format)
+    params["application"] = application
+    param_list = divide_date_range(params, begin_date, end_date, date, date_range)
+    data = process_date_range(param_list)
 
-        response = requests.get(url, params=params, timeout=60)
-
-        # Check if the request was successful
-        if response.status_code != 200:
-            # If the request was not successful, raise an error
-            msg = f"Request returned status code {response.status_code}"
-            msg = f"Response:{response.text}"
-            msg += f"URL: {response.url}"
-            raise ValueError(msg)
-
-        if "Error: No data was found" in response.text:
-            raise EmptyDataError(response.text.split("\n")[1])
-
-        # If the request was successful, read the content into an xarray dataarray
-        if response.headers["Content-Type"] in [
-            "text/csv",
-            "text/comma-separated-values",
-        ]:
-            data = pd.read_csv(StringIO(response.text))
-        elif response.headers["Content-Type"] == "application/json":
-            data = pd.read_json(response.text)
-        else:
-            raise ValueError(
-                f"Unrecognized Content-Type: {response.headers['Content-Type']}"
-            )
+    if data is not None:
         data.rename(lambda x: x.strip(), axis=1, inplace=True)
         data["Date Time"] = pd.to_datetime(data["Date Time"])
         data.set_index("Date Time", inplace=True)
         data = data.dropna()
-    else:
-        data = process_date_range(
-            begin_date, end_date, station_id, product=product, workers=workers
-        )
-
-    if data is not None:
-        data = data[data.index >= begin_date]
-        data = data[data.index < end_date]
+        data = data[data.index >= dt_date(begin_date)]
+        data = data[data.index < dt_date(end_date)]
 
     return data
 
 
-def process_date_range(
-    start_date, end_date, station_id, product="water_level", workers=8
-):
-    # Divide the date range into chunks of one month intervals
-    intervals = []
-    start_date = dt_date(start_date)
-    end_date = dt_date(end_date)
-    current_date = start_date
-    while current_date < end_date:
-        next_date = current_date + timedelta(days=29)
-        intervals.append((current_date, next_date))
-        current_date = next_date
+def _make_request(params):
 
+    # Build the URL for the API request
+    url = "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter"
+    response = requests.get(url, params=params, timeout=60)
+
+    # Check if the request was successful
+    if response.status_code != 200:
+        # If the request was not successful, raise an error
+        msg = f"Request returned status code {response.status_code}"
+        msg = f"Response:{response.text}"
+        msg += f"URL: {response.url}"
+        raise ValueError(msg)
+
+    if "Error: No data was found" in response.text:
+        raise EmptyDataError(response.text.split("\n")[1])
+
+    # If the request was successful, read the content into an xarray dataarray
+    if response.headers["Content-Type"] in [
+        "text/csv",
+        "text/comma-separated-values",
+    ]:
+        data = pd.read_csv(StringIO(response.text))
+    elif response.headers["Content-Type"] == "application/json":
+        data = pd.read_json(response.text)
+    else:
+        raise ValueError(
+            f"Unrecognized Content-Type: {response.headers['Content-Type']}"
+        )
+
+    return data
+
+
+def process_date_range(params, workers=8):
     # Call the command line tool in parallel on each interval
     df_list = []
+    pdb.set_trace()
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
         future_to_input = {
-            executor.submit(
-                subprocess.run,
-                [
-                    "noaa_data",
-                    "get",
-                    str(station_id),
-                    "-p",
-                    product,
-                    "-b",
-                    str_date(interval[0]),
-                    "-e",
-                    str_date(interval[1] - timedelta(seconds=1)),
-                ],
-                capture_output=True,
-            ): interval
-            for interval in intervals
+            executor.submit(_make_request, p, capture_output=True): p for p in params
         }
         with alive_bar(
             len(future_to_input),
@@ -505,11 +629,13 @@ def process_date_range(
                 bar()  # update the progress bar
                 input = future_to_input[future]
                 try:
-                    output = future.result().stdout
-                    df = pd.read_csv(
-                        StringIO(output.decode("utf-8")),
-                        delimiter=",",
-                    )
+                    df = future.result()
+                    # output = future.result().stdout
+                    # df = pd.read_csv(
+                    #     StringIO(output.decode("utf-8")),
+                    #     delimiter=",",
+                    # )
+                    pdb.set_trace()
                     df.rename(lambda x: x.strip(), axis=1, inplace=True)
                     df["Date Time"] = pd.to_datetime(df["Date Time"])
                     df.set_index("Date Time", inplace=True)
@@ -728,123 +854,3 @@ def wicks_2017_algo(
                 found_events.append(event)
 
     return found_events
-
-
-# def process_tide_data(raw_data):
-#     """
-#     Process tide data
-#
-#     """
-#     dfs = [raw_data] if not isinstance(raw_data, list) else raw_data
-#     data = []
-#     for df in dfs:
-#         df.rename(lambda x: x.strip(), axis=1, inplace=True)
-#         df["Date Time"] = pd.to_datetime(df["Date Time"])
-#         df.set_index("Date Time", inplace=True)
-#         df = df.dropna()
-#
-#         if "Water Level" in df.columns:
-#             # Convert the "Water Level" column to an xarray data array
-#             data.append(
-#                 xr.DataArray(df["Water Level"], name="Water Level", dims=("Date Time"))
-#             )
-#             # Convert the "Sigma" column to an xarray data array
-#             data.append(xr.DataArray(df["Sigma"], name="Sigma", dims=("Date Time")))
-#         if "Prediction" in df.columns:
-#             # Convert the "Water Level" column to an xarray data array
-#             data.append(
-#                 xr.DataArray(df["Prediction"], name="Prediction", dims=("Date Time"))
-#             )
-#
-#     # Merge data found
-#     ds = xr.merge(data)
-#
-#     return ds
-#
-#
-# def get_station_data(station_id, start_date, end_date, concat=True):
-#     """
-#     Scan Date Range
-#
-#     Scan a date range for timestampes when water levels exceeded
-#     a certain threshold at a certain station
-#     """
-#
-#     def _pull_data(st, et):
-#         """Should always pull"""
-#         print(f"Getting chunk {st} - {et}")
-#         chunk = []
-#         chunk.append(get_tide_data(st, et, station_id, "water_level", "csv"))
-#         chunk.append(get_tide_data(st, et, station_id, "predictions", "csv"))
-#         try:
-#             chunk = process_tide_data(chunk)
-#         except dateutil.parser._parser.ParserError:
-#             chunk = xr.Dataset(
-#                 coords={
-#                     "Date Time": xr.DataArray(
-#                         np.array([], dtype="datetime64[ns]"), dims=["Date Time"]
-#                     )
-#                 },
-#                 data_vars={
-#                     "Water Level": (["Date Time"], []),
-#                     "Sigma": (["Date Time"], []),
-#                     "Prediction": (["Date Time"], []),
-#                 },
-#             )
-#         chunk["Residual"] = chunk["Water Level"] - chunk["Prediction"]
-#         print(f"\tPulled {len(chunk['Date Time'])} records")
-#         return chunk
-#
-#     def _recurse_help(sd, ed):
-#         d = (ed - sd).days
-#         print(f"Scanning date range {sd} - {ed} = {d} Days")
-#         if d < 31:
-#             return [_pull_data(sd, ed)]
-#         else:
-#             chunk_end = sd + pd.to_timedelta(31, "D")
-#             return [_pull_data(sd, chunk_end)] + _recurse_help(chunk_end, ed)
-#
-#     data = _recurse_help(dt_date(start_date), dt_date(end_date))
-#     if concat:
-#         data = xr.concat(data, dim="Date Time")
-#
-#     return data
-#
-
-
-def noaa_coops_get_data(
-    station_id,
-    begin_date,
-    end_date,
-    product,
-    datum="msl",
-    units="metric",
-    interval=6,
-    time_zone="gmt",
-    application="pyadcirc",
-):
-    """
-    Get data using noaa-coops python api
-
-    """
-    begin_date_str = (dt_date(begin_date).strftime("%Y%m%d"),)
-    end_date_str = (dt_date(end_date).strftime("%Y%m%d"),)
-
-    df_product = nc.Station(station_id).get_data(
-        begin_date=begin_date_str,
-        end_date=end_date_str,
-        product=product,
-        datum=datum,
-        units=units,
-        time_zone=time_zone,
-        interval=interval,
-    )
-
-    return df_product
-
-
-begin_date and end_date
-begin_date and range
-end_date and range
-date
-range
