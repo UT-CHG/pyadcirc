@@ -67,8 +67,9 @@ def text_line_plot(
         print(str.ljust(f"Time:{index[i-hw]} - {index[end]}", 100, " "))
         to_plot_lines[-1] = list(to_plot_vals[i - hw : end])
         chart = asciichartpy.plot(to_plot_lines, cfg=cfg) + "\n"
-        sys.stdout.buffer.write(chart.encode("utf-8"))
-        sys.stdout.flush()
+        print(chart)
+        # sys.stdout.buffer.write(chart.encode("utf-8"))
+        # sys.stdout.flush()
         time.sleep(0.05)
 
     res = 'N'
