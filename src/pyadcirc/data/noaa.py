@@ -409,6 +409,7 @@ def _make_request(params):
 def process_date_range(params, workers=8):
     # Call the command line tool in parallel on each interval
     df_list = []
+    no_data = []
     with concurrent.futures.ThreadPoolExecutor(
             max_workers=workers) as executor:
         future_to_input = {
@@ -433,10 +434,12 @@ def process_date_range(params, workers=8):
                     df.set_index("Date Time", inplace=True)
                     df_list.append(df)
                 except KeyError:
-                    print(f"{input} generated no data")
+                    no_data.append(input)
+                    # print(f"{input} generated no data")
                     pass
                 except EmptyDataError:
-                    print(f"{input} generated no data")
+                    no_data.append(input)
+                    # print(f"{input} generated no data")
                     pass
                 except Exception as exc:
                     print(f"{input} generated an exception: {exc}")
@@ -511,6 +514,13 @@ def wicks_2017_algo(
     data["Group"] = (data["TriggerThreshold"].ne(
         data["TriggerThreshold"].shift()).cumsum())
 
+    if data['TriggerThreshold'].all() or data['ContinuityThreshold'].all():
+        # Data itself is a whole event
+        return [data]
+    elif not data['TriggerThreshold'].any():
+        # No events in dataset
+        return []
+
     found_events = []
 
     # Merge groups < lull_duration or that don't go below ContinuityThreshold
@@ -574,9 +584,8 @@ def wicks_2017_algo(
                 )
         else:
             found_idxs = np.where(groups == previous_index)[0]
-
-                pd.to_timedelta(shoulder_period, "S") /
-                pd.to_timedelta(6, "m"))
+            shoulder_timesteps = int(pd.to_timedelta(shoulder_period, "S") /
+                                     pd.to_timedelta(6, "m"))
             found_idxs = np.hstack([
                 np.arange(found_idxs[0] - shoulder_timesteps, found_idxs[0]),
                 found_idxs,
@@ -615,30 +624,82 @@ def wicks_2017_algo(
                 event_idx += 1
 
         index = next_next_index
-    # if len(found_events) > 0:
-    #     found_events = pd.concat(found_events)
-    # else:
-    #     found_events = None
 
     return found_events
 
 
-def pull_dataset(station_id,
-                 **kwargs):
+def get_event_dataset(station_id,
+                      data=None,
+                      **kwargs):
     """
     Pull Dataset
     Method to compile groups of datasets into one. Encode logic on how to merge
     different NOAA datasets accross different intervals here.
     """
-    data = get_tide_data(station_id, product="water_level", **kwargs)
-    preds = get_tide_data(station_id, product="predictions", **kwargs)
+    raw_data = None
+    if data is None:
+        data = get_tide_data(station_id, product="water_level", **kwargs)
+        preds = get_tide_data(station_id, product="predictions", **kwargs)
 
-    if data is None or preds is None:
-        raise EmptyDataError("No data found")
+        if data is None or preds is None:
+            raise EmptyDataError("No data found")
 
-    data = data.merge(preds, on='Date Time', how='left')
-    data = data.sort_index()
-    data = data[['Sigma', 'Water Level', 'Prediction']]
+        data = data.merge(preds, on='Date Time', how='left')
+        data = data.sort_index()
+        raw_data = data.copy()
 
-    return data
+    data = data[~data.index.duplicated(keep='first')]
+    data['No Data'] = data['Water Level'].isna()
+    data['Data Groups'] = data['No Data'].ne(data['No Data'].shift()).cumsum()
+    data['Group Size'] = data.groupby('Data Groups')['Prediction'].transform(len)
+    data['Group Duration'] = data['Group Size']
+    data['Duration (Hours)'] = (data['Group Size'] * 6.0)/60.0
+    data['Duration Flag'] = data['Duration (Hours)'] >= 24.0
+    data['Valid Group Flag'] = ~data['No Data'] & data['Duration Flag'] & (data['Quality'] == 'v')
 
+    trigger_threshold = 1.0
+    continuity_thresold = 0.9
+    lull_duration = 21600
+    shoulder_period = 43200
+    chute_rule = 9
+
+    events = []
+    for name, group in data.groupby('Data Groups'):
+        if not group['Valid Group Flag'].all():
+            pass
+        else:
+            try:
+                group_events = wicks_2017_algo(
+                    group,
+                    trigger_threshold=trigger_threshold,
+                    lull_duration=lull_duration,
+                    continuity_threshold=continuity_thresold,
+                    shoulder_period=shoulder_period,
+                    chute_rule=chute_rule,
+                    interactive=False,
+                )
+                events = events + group_events
+            except Exception as e:
+                print(f'Group {name} of size {len(group)} threw error {e}')
+                pass
+
+    # Get events greater than 12 hours but less than days
+    def len_filter(group):
+        if (len(group) < (5 * 24 * 60) / 6) & (len(group) > (12 * 60) / 6):
+            return True
+        else:
+            return False
+    events_filtered = [e for e in events if len_filter(e)]
+
+    for idx, e in enumerate(events_filtered):
+        e['Event ID'] = idx
+        e['Type'] = 'Positive' if not np.abs(
+                e['Water Level'].min()) > e['Water Level'].max() else 'Negative'
+
+    all_events = pd.concat(events_filtered)
+    all_events['Date Time'] = all_events.index
+    all_events.set_index(['Event ID'], inplace=True)
+    all_events = all_events[['Type', 'Date Time', 'Prediction',
+                             'Water Level', 'Sigma', 'Difference', 'Duration (Hours)']]
+
+    return raw_data, all_events
