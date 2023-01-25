@@ -110,6 +110,7 @@ def get_station_metadata(station_id: int):
         "name": station_metadata["name"],
         "id": station_id,
         "coords": [station_metadata["lng"], station_metadata["lat"]],
+        "link": f"https://tidesandcurrents.noaa.gov/stationhome.html?id={station_id}",
     }
 
     return station
@@ -454,11 +455,6 @@ def process_date_range(params, workers=8):
     return full_df
 
 
-def find_stations_in_bbox(bbox):
-    """Return list of NOAA stations that are within a given bounding box"""
-    pass
-
-
 def noaa_url(station_id: int,
              start_date: str,
              end_date: str,
@@ -629,24 +625,31 @@ def wicks_2017_algo(
 
 
 def get_event_dataset(station_id,
-                      data=None,
                       **kwargs):
     """
-    Pull Dataset
+    Get Event Dataset
+
     Method to compile groups of datasets into one. Encode logic on how to merge
     different NOAA datasets accross different intervals here.
+
+    From raw data pulled from now, chunk data into valid data intervals.
+    To get a valid chunk of data need to have good measurements - i.e. good 'Water Level' measurements.
+    Predictions will always exist based off of NOAA's models.
+    Water Levels may or may not exist, and may or may not be verified ('Quality' == 'v').
+    To get valid groups of data to scan for storm surge events we get continuous groups of data that have the following properties:
+
+        1. No NA 'Water Level' values
+        2. Quality == 'v' for the whole group (i.e. all Water Level values have been verified).
+        3. Duration of group is greater than 24 hours.
     """
-    raw_data = None
-    if data is None:
-        data = get_tide_data(station_id, product="water_level", **kwargs)
-        preds = get_tide_data(station_id, product="predictions", **kwargs)
+    data = get_tide_data(station_id, product="water_level", **kwargs)
+    preds = get_tide_data(station_id, product="predictions", **kwargs)
 
-        if data is None or preds is None:
-            raise EmptyDataError("No data found")
+    if data is None or preds is None:
+        raise EmptyDataError("No data found")
 
-        data = data.merge(preds, on='Date Time', how='left')
-        data = data.sort_index()
-        raw_data = data.copy()
+    data = data.merge(preds, on='Date Time', how='left')
+    data = data.sort_index()
 
     data = data[~data.index.duplicated(keep='first')]
     data['No Data'] = data['Water Level'].isna()
@@ -702,4 +705,4 @@ def get_event_dataset(station_id,
     all_events = all_events[['Type', 'Date Time', 'Prediction',
                              'Water Level', 'Sigma', 'Difference', 'Duration (Hours)']]
 
-    return raw_data, all_events
+    return all_events
