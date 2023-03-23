@@ -625,6 +625,11 @@ def wicks_2017_algo(
 
 
 def get_event_dataset(station_id,
+                      trigger_threshold=1.0,
+                      continuity_thresold=0.9,
+                      lull_duration=21600,
+                      shoulder_period=43200,
+                      chute_rule=9,
                       **kwargs):
     """
     Get Event Dataset
@@ -659,12 +664,6 @@ def get_event_dataset(station_id,
     data['Duration (Hours)'] = (data['Group Size'] * 6.0)/60.0
     data['Duration Flag'] = data['Duration (Hours)'] >= 24.0
     data['Valid Group Flag'] = ~data['No Data'] & data['Duration Flag'] & (data['Quality'] == 'v')
-
-    trigger_threshold = 1.0
-    continuity_thresold = 0.9
-    lull_duration = 21600
-    shoulder_period = 43200
-    chute_rule = 9
 
     events = []
     for name, group in data.groupby('Data Groups'):
