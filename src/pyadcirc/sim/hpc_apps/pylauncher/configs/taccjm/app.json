@@ -1,0 +1,41 @@
+{
+    "name": "{{ app.name }}",
+    "short_desc": "{{ app.short_desc }}",
+    "long_desc": "{{ app.long_desc }}",
+    "default_node_count": "{{ app.nodes }}",
+    "default_processors_per_node": "{{ app.tasks_per_node }}",
+    "default_memory_per_node": "{{ app.mem_per_node }}",
+    "default_max_run_time": "{{ app.runtime }}",
+    "default_queue": "{{ app.queue }}",
+    "entry_script": "run.sh",
+    "inputs": [],
+    "parameters": [
+        {
+            "name": "inputDirectory",
+            "label": "Input Directory",
+            "desc": "The directory containing ADCIRC input files."
+        },
+        {
+            "name": "execDirectory",
+            "label": "Executables Directory",
+            "desc": "The directory containing ADCIRC executables to use."
+        },
+        {
+            "name": "writeProcesses",
+            "label": "Number of Write Processes",
+            "desc": "Number of processes to dedicate to writing output data."
+        },
+        {
+            "name": "remora",
+            "label": "REMORA FLag",
+            "desc": "Whether to run REMORA resource monitoring tool."
+        }
+    ],
+    "outputs": [
+        {
+            "name": "Outputs",
+            "label": "Output Directory",
+            "desc": "Directory containing output to archive."
+        }
+    ]
+}

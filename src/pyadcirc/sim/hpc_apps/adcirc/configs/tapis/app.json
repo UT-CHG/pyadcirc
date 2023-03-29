@@ -1,0 +1,155 @@
+{
+  "checkpointable": false,
+  "name": "{{ app.name }}",
+  "executionSystem": "{{ app.execution_system }}",
+  "executionType": "HPC",
+  "deploymentPath": "{{ username }}/apps/{{ app.name }}-{{ app.version }}",
+  "deploymentSystem": "{{ app.deployment_system }}",
+  "helpURI": "",
+  "label": "{{ app.label }}",
+  "shortDescription": "{{ app.short_desc }}",
+  "longDescription": "{{ app.long_desc }}",
+  "modules": [],
+  "ontology": ["adcirc", "storm_surge"],
+  "parallelism": "PARALLEL",
+  "tags": [],
+  "templatePath": "run.sh",
+  "testPath": "test.sh",
+  "version": "{{ app.version }}",
+  "defaultMaxRunTime": "01:00:00",
+  "defaultMemoryPerNode": "{{ app.mem_per_node }}",
+  "defaultNodeCount": "{{ app.nodes }}",
+  "defaultProcessorsPerNode": "{{ app.tasks_per_node }}",
+  "defaultMaxRunTime": "{{ app.runtime }}",
+  "defaultQueue": "{{ app.queue }}",
+  "inputs": [
+    {
+      "semantics": {
+        "fileTypes": [
+          "raw-0"
+        ],
+        "minCardinality": 1,
+        "ontology": [
+          "xsd:string"
+        ],
+        "maxCardinality": 1
+      },
+      "id": "inputDirectory",
+      "value": {
+        "default": "{{ app.def_input_dir }}",
+        "required": true,
+        "enquote": false,
+        "visible": true,
+        "validator": "",
+        "order": 0
+      },
+      "details": {
+        "argument": null,
+        "repeatArgument": false,
+        "description": "The directory containing your ADCIRC input files.",
+        "showArgument": false,
+        "label": "Input Directory"
+      }
+    },
+    {
+      "semantics": {
+        "fileTypes": [
+          "raw-0"
+        ],
+        "minCardinality": 1,
+        "ontology": [
+          "xsd:string"
+        ],
+        "maxCardinality": 1
+      },
+      "id": "execDirectory",
+      "value": {
+        "default": "{{ app.def_exec_dir }}",
+        "required": true,
+        "enquote": false,
+        "visible": true,
+        "validator": "",
+        "order": 0
+      },
+      "details": {
+        "argument": null,
+        "repeatArgument": false,
+        "description": "The directory containing your ADCIRC executables adcprep and padcirc compiled for appropriate executions system.",
+        "showArgument": false,
+        "label": "Input Directory"
+      }
+    }
+  ],
+  "parameters": [
+    {
+      "id": "writeProcesses",
+      "value": {
+        "visible": true,
+        "required": false,
+        "type": "number",
+        "order": 0,
+        "default": 1
+      },
+      "details": {
+        "label": "ADCIRC Write Processes",
+        "description": "Number of processes to dedicate to writing output data."
+      },
+      "semantics": {
+        "minCardinality": 1,
+        "maxCardinality": 1,
+        "ontology": []
+      }
+    },
+    {
+      "id": "remora",
+      "value": {
+        "visible": true,
+        "required": false,
+        "type": "number",
+        "order": 0,
+        "default": 0
+      },
+      "details": {
+        "label": "REMORA flag",
+        "description": "Flag indicating whether to run ADCIRC with the REMORA resource monitoring tool."
+      },
+      "semantics": {
+        "minCardinality": 1,
+        "maxCardinality": 1,
+        "ontology": []
+      }
+    }
+  ],
+  "outputs": [
+    {
+      "id": "logs",
+      "value": {
+        "order": 100,
+        "default": "logs.zip"
+      },
+      "details": {
+        "label": "Compressed folder containing all log files."
+      },
+      "semantics": {
+        "minCardinality": 0,
+        "maxCardinality": 1,
+        "ontology": []
+      }
+    },
+    {
+      "id": "outputs",
+      "value": {
+        "order": 200,
+        "default": "logs.zip"
+      },
+      "details": {
+        "label": "Compressed folder containing all output files."
+      },
+      "semantics": {
+        "minCardinality": 0,
+        "maxCardinality": 1,
+        "ontology": []
+      }
+    }
+  ]
+}
