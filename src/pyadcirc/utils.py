@@ -106,3 +106,86 @@ def get_bbox(f14: xr.Dataset, scale_x: float = 0.1, scale_y: float = 0.1):
     ]
 
     return bounds, bbox
+
+
+def regrid(arr, old_lat, old_lon, new_lat, new_lon):
+    """
+    Regrid an array from one regular lat-lon grid to another
+
+    Assumes that the new grid is finer-scale
+
+    Credit: Benjamin Pachev
+    """
+    print("newgrid", type(old_lat), type(new_lat))
+    lat_inds = np.searchsorted(old_lat, new_lat)
+    lon_inds = np.searchsorted(old_lon, new_lon)
+    nlat, nlon = len(old_lat), len(old_lon)
+    lat_inds = np.clip(lat_inds, 1, nlat - 1)
+    lon_inds = np.clip(lon_inds, 1, nlon - 1)
+    lat_inds_lower = lat_inds - 1
+    lon_inds_lower = lon_inds - 1
+
+    # now determine interpolation weights
+
+    lat_weights = (new_lat - old_lat[lat_inds_lower]) / (
+        old_lat[lat_inds] - old_lat[lat_inds_lower]
+    )
+    lon_weights = (new_lon - old_lon[lon_inds_lower]) / (
+        old_lon[lon_inds] - old_lon[lon_inds_lower]
+    )
+    print(type(lat_weights), type(lon_weights))
+    print(arr.shape, len(lat_weights), len(lon_weights))
+    lat_weights = lat_weights.reshape((1, 1, len(lat_weights), 1))
+    lon_weights = lon_weights.reshape((1, 1, 1, len(lon_weights)))
+
+    out = (
+        lat_weights * arr[..., lat_inds_lower, :]
+        + (1 - lat_weights) * arr[..., lat_inds, :]
+    )
+    out = (
+        lon_weights * out[..., lon_inds_lower] + (1 - lon_weights) * out[..., lon_inds]
+    )
+    print(f"Old mean {arr.mean()}, new mean {out.mean()}")
+    return out
+
+
+# TODO: Move to this and check_file status to utils?
+def sizeof_fmt(num, suffix="B"):
+    """
+    Formats number representing bytes to string with appropriate size unit.
+
+    Parameters
+    ----------
+    num : int,float
+        Number to convert to string with bytes unit.
+    suffix : str, default=B
+        Suffix to use for measurement. Kilobytes will be KiB with default.
+
+    Returns
+    -------
+    fmt_str : str
+        Formatted string with bytes units.
+
+    Notes
+    -----
+    Taken from
+    stackoverflow.com/questions/1094841/get-human-readable-version-of-file-size
+    """
+    for unit in ["", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi"]:
+        if abs(num) < 1024.0:
+            return f"{num:3.1f} {unit}{suffix}"
+        num /= 1024.0
+    return f"{num:.1f} Yi{suffix}"
+
+
+def check_file_status(filepath, filesize):
+    """
+    Check and print a file status by computing current size / filesize.
+    """
+    sys.stdout.write("\r")
+    sys.stdout.flush()
+    size = int(os.stat(filepath).st_size)
+    percent_complete = (size / filesize) * 100
+    sys.stdout.write("%.3f %s" % (percent_complete, "% Completed"))
+    sys.stdout.flush()
+

@@ -2,15 +2,12 @@
 io.py - Utilities Reading/Writing local ADCIRC Files
 
 """
-
-import argparse
 import glob
 import linecache as lc
 import logging
 import os
 import pdb
 import re
-import sys
 from contextlib import contextmanager
 from functools import reduce
 from pathlib import Path
@@ -20,13 +17,8 @@ from typing import List, Tuple
 import numpy as np
 import pandas as pd
 import xarray as xr
-import argparse
-import logging
-import pdb
-import sys
-from pathlib import Path
 
-from pyadcirc.utils import get_bbox
+from pyadcirc.utils import get_bbox, regrid
 from pyadcirc import __version__
 
 __author__ = "Carlos del-Castillo-Negrete"
@@ -1755,6 +1747,133 @@ def gen_uniform_beta_fort13(
         files.append(fpath)
 
     return str(targ_path), files
+
+
+def cfsv2_grib_to_adcirc_owi(
+    files: List[str],
+    outfile: str = None,
+    newgrid=None,
+    bounding_box: List[float] = None,
+    date_range: Tuple[str] = None,
+):
+    """
+    CFSv2 Grib Data to ADCIRC fort.22* metereological forcing files.
+    Converts and sub-samples data in time and space from a set of grib files
+    that have been downloaded from NCAR's CFSv2 data set (id='ds094.1')
+    Parameters
+    ----------
+    files : List[str]
+      List of grib files to open. Must all correspond to the same type of data.
+    output_name : str, optional
+      Name of output netcdf file to write. If none specified (default), then no
+      output file will be written, just the read in xarray will be returned.
+    newgrid : Tuple[np.ndarray], optional
+      Tuple in (newlat, newlong) format
+       Contains the new grid to mesh to.
+    bounding_box : List[float], optional
+      Bounding box list in `[long_min, long_max, lat_min, lat_max]` format. By
+      default grib datastes from CFSv2 are global.
+    Returns
+    -------
+    data : xarray.Dataset
+      xarray.Dataset containing dimensions `(time, latitude, longitude)` with
+      data variables corresponding to meteorological forcing data from CFSv2.
+    """
+    # Open and load data-set
+    data = xr.open_mfdataset(files)
+    data = data.load()
+
+    # Filter according to passed in args
+    if bounding_box is not None:
+        data = data.sel(
+            latitude=slice(bounding_box[3], bounding_box[2]),
+            longitude=slice(bounding_box[0], bounding_box[1]),
+        )
+
+    start_date = pd.to_datetime(date_range[0])
+    end_date = pd.to_datetime(date_range[1])
+
+    # Write only if necessary
+    if outfile is None:
+        return data
+    if outfile.endswith("221"):
+        variables = ["prmsl"]
+        forcing_type = "pressure"
+    elif outfile.endswith("222"):
+        variables = ["u10", "v10"]
+        forcing_type = "wind"
+    elif outfile.endswith("225"):
+        variables = ["siconc"]
+        forcing_type = "ice"
+    else:
+        raise ValueError("Unsupported ADCIRC input file {outfile}")
+
+    latitude = data["latitude"].to_numpy()
+    longitude = data["longitude"].to_numpy()
+    print(type(latitude), type(longitude))
+    print(latitude.reshape((1, len(latitude))))
+    time = pd.to_datetime(data["valid_time"].values)
+
+    fmt = "%Y%m%d%H"
+    start_date_str, end_date_str = start_date.strftime(fmt), end_date.strftime(fmt)
+    owi_cols = 8
+    arrs = {v: data[v].to_numpy() for v in variables}
+
+    if latitude[1] < latitude[0]:
+        for v in arrs:
+            arrs[v] = arrs[v][:, :, ::-1, :]
+        latitude = latitude[::-1]
+
+    if "prmsl" in arrs:
+        # divide by 100 to convert to mBar
+        arrs["prmsl"] /= 100
+
+    if newgrid is not None:
+        for v in arrs:
+            arrs[v] = regrid(arrs[v], latitude, longitude, *newgrid)
+        latitude, longitude = newgrid
+
+    dx, dy = latitude[1] - latitude[0], longitude[1] - longitude[0]
+    snap_str = (
+        f"iLat={str(len(latitude)).rjust(4)}iLong={str(len(longitude)).rjust(4)}"
+        + f"DX={dx:.4f}DY={dy:.4f}"
+    )
+
+    snap_str += (
+        "SWLAT="
+        + f"{latitude[0]:.4f}".rjust(8)
+        + "SWLon="
+        + f"{longitude[0]:.4f}".rjust(8)
+    )
+
+    arrs["latitude"], arrs["longitude"] = latitude, longitude
+    arrs["time"] = time
+
+    with open(outfile, "w") as fp:
+        fp.write(
+            f"NCAR {forcing_type} data".ljust(56)
+            + f"{start_date_str}      {end_date_str}\n"
+        )
+        for i in range(len(time)):
+            for j in range(len(time[i])):
+                curr_time = time[i][j]
+                if curr_time > end_date:
+                    return arrs
+                elif curr_time < start_date:
+                    continue
+
+                time_str = curr_time.strftime("%Y%m%d%H%M")
+                fp.write(snap_str + f"DT={time_str}\n")
+                for v in variables:
+                    arr = arrs[v][i, j]
+                    str_vals = [f"{x:.4f}".rjust(10) for x in arr.flatten()]
+                    for k in range(owi_cols - 1, len(str_vals), owi_cols):
+                        str_vals[k] += "\n"
+                    if len(str_vals) % owi_cols:
+                        str_vals[-1] += "\n"
+                    fp.write("".join(str_vals))
+
+    return arrs
 
 
 def cfsv2_grib_to_adcirc_netcdf(

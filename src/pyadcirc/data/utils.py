@@ -1,15 +1,17 @@
 import pdb
 import re
-import pandas as pd
+from datetime import timedelta
 from pathlib import Path
+
+import pandas as pd
+from prettytable import PrettyTable
 from pyfiglet import Figlet
 from termcolor import colored
-from datetime import timedelta
-from prettytable import PrettyTable
 
 
-def make_pretty_table(df, fields, search=None,
-                      match=r".", filter_fun=None, colors=None):
+def make_pretty_table(
+    df, fields, search=None, match=r".", filter_fun=None, colors=None
+):
     """
     Makes a pretty table
 
@@ -36,10 +38,10 @@ def make_pretty_table(df, fields, search=None,
     x = PrettyTable(float_format="0.2")
     x.field_names = fields
     if colors is None:
-        colors = len(fields)*["blue"]
+        colors = len(fields) * ["blue"]
     else:
         if len(colors) != len(fields):
-            raise ValueError('Colors must be same length as fields')
+            raise ValueError("Colors must be same length as fields")
 
     # Build table from results
     for _, r in df.dropna().iterrows():
@@ -87,11 +89,7 @@ def chunkify_str(text, line_length=70):
 
 
 def get_help_text(
-    category,
-    option="all",
-    key_color="yellow",
-    value_color="blue",
-    line_length=None
+    category, option="all", key_color="yellow", value_color="blue", line_length=None
 ):
     """
     Parse description for CLI help
@@ -103,7 +101,11 @@ def get_help_text(
         items = [(option, category[option])]
     for key, val in items:
         key_text = colored(key, key_color) if key_color is not None else key
-        val_text = colored(val["desc"], value_color) if value_color is not None else val["desc"]
+        val_text = (
+            colored(val["desc"], value_color)
+            if value_color is not None
+            else val["desc"]
+        )
         help_text += f"{key_text} : {val_text} \n\n"
 
     if line_length is not None:
@@ -129,13 +131,26 @@ def get_banner_text(
 
     return colored_banner
 
-def create_pretty_table(data: pd.DataFrame, key_col_name:str, value_col_name:str, key_col_label:str, value_col_label:str, key_col_color:str, value_col_color:str):
+
+def create_pretty_table(
+    data: pd.DataFrame,
+    key_col_name: str,
+    value_col_name: str,
+    key_col_label: str,
+    value_col_label: str,
+    key_col_color: str,
+    value_col_color: str,
+):
     x = PrettyTable()
     x.field_names = [key_col_label, value_col_label]
     for _, row in data.iterrows():
-        x.add_row([colored(row[key_col_name], key_col_color), colored(row[value_col_name], value_col_color)])
+        x.add_row(
+            [
+                colored(row[key_col_name], key_col_color),
+                colored(row[value_col_name], value_col_color),
+            ]
+        )
     return x.get_string()
-
 
 
 banner_text = [
@@ -193,47 +208,103 @@ product_help_text = [
 
 
 DATE_TIME = {
-    "begin_date": ''.join([colored("Use with either: ", color='blue'),
-                           colored("end_date", color="yellow"), ' : ',
-                           colored("to express an explicit date range, or with ",
-                                   color='blue'),
-                           colored("date_range", color="yellow"), ' : ',
-                           colored(''.join(["to express a date range (in hours) of ti",
-                                            "me starting from a certain date."]),
-                                   color="blue")]),
-    "end_date": ''.join([colored("Use with either: ", color='blue'),
-                         colored("begin_date", color="yellow"), ' : ',
-                         colored("to express an explicit date range, or with ",
-                                 color='blue'),
-                         colored("date_range", color="yellow"), ' : ',
-                         colored(''.join(["to express a date range (in hours) of ti",
-                                          "me ending on a certain date."]),
-                                 color="blue")]),
-    "range": ''.join([colored("Use either with: ", color='blue'),
-                      colored("begin_date", color="yellow"), ' : ',
-                      colored("to express an explicit date range, or with ",
-                              color='blue'),
-                      colored("date_range", color="yellow"), ' : ',
-                      colored(''.join(["to express a date range (in hours) of ti",
-                                       "me ending on a certain date."]),
-                              color="blue"),
-                      '                          ',
-                      colored("alone", color="yellow"), ' : ',
-                      colored(''.join(["to specify number of hours bac",
-                                       "k from current time (only available for pre",
-                                       "liminary water level data and meteorologica",
-                                       "l data)"]),
-                              color="blue")]),
-    "date": ''.join([colored(''.join(["Only available for preliminary water level data",
-                                      ", meteorological data and predictions.\nValid o",
-                                      "ptions for the date parameter are:"]),
-                             color='blue'),
-                     '             ',
-                     get_help_text({"today": {"desc": "24 hours starting at midnight"},
-                                    "latest": {"desc": ''.join(["last data point ",
-                                                                "available within the ",
-                                                                "last 18 min"])},
-                                    "recent": {"desc": "last 72 hours"}})])
+    "begin_date": "".join(
+        [
+            colored("Use with either: ", color="blue"),
+            colored("end_date", color="yellow"),
+            " : ",
+            colored("to express an explicit date range, or with ", color="blue"),
+            colored("date_range", color="yellow"),
+            " : ",
+            colored(
+                "".join(
+                    [
+                        "to express a date range (in hours) of ti",
+                        "me starting from a certain date.",
+                    ]
+                ),
+                color="blue",
+            ),
+        ]
+    ),
+    "end_date": "".join(
+        [
+            colored("Use with either: ", color="blue"),
+            colored("begin_date", color="yellow"),
+            " : ",
+            colored("to express an explicit date range, or with ", color="blue"),
+            colored("date_range", color="yellow"),
+            " : ",
+            colored(
+                "".join(
+                    [
+                        "to express a date range (in hours) of ti",
+                        "me ending on a certain date.",
+                    ]
+                ),
+                color="blue",
+            ),
+        ]
+    ),
+    "range": "".join(
+        [
+            colored("Use either with: ", color="blue"),
+            colored("begin_date", color="yellow"),
+            " : ",
+            colored("to express an explicit date range, or with ", color="blue"),
+            colored("date_range", color="yellow"),
+            " : ",
+            colored(
+                "".join(
+                    [
+                        "to express a date range (in hours) of ti",
+                        "me ending on a certain date.",
+                    ]
+                ),
+                color="blue",
+            ),
+            "                          ",
+            colored("alone", color="yellow"),
+            " : ",
+            colored(
+                "".join(
+                    [
+                        "to specify number of hours bac",
+                        "k from current time (only available for pre",
+                        "liminary water level data and meteorologica",
+                        "l data)",
+                    ]
+                ),
+                color="blue",
+            ),
+        ]
+    ),
+    "date": "".join(
+        [
+            colored(
+                "".join(
+                    [
+                        "Only available for preliminary water level data",
+                        ", meteorological data and predictions.\nValid o",
+                        "ptions for the date parameter are:",
+                    ]
+                ),
+                color="blue",
+            ),
+            "             ",
+            get_help_text(
+                {
+                    "today": {"desc": "24 hours starting at midnight"},
+                    "latest": {
+                        "desc": "".join(
+                            ["last data point ", "available within the ", "last 18 min"]
+                        )
+                    },
+                    "recent": {"desc": "last 72 hours"},
+                }
+            ),
+        ]
+    ),
 }
 
 PRODUCTS = {
@@ -356,43 +427,83 @@ DATUMS = {
 }
 
 UNITS = {
-        "metric": {"desc": "Metric units (Celsius, meters, cm/s appropriate for the data)\nNOTE: Visibility data is kilometers (km)"},
-        "english": {"desc": "English units (fahrenheit, feet, knots appropriate for the data)\nNOTE: Visibility data is Nautical Miles (nm)"},
+    "metric": {
+        "desc": "Metric units (Celsius, meters, cm/s appropriate for the data)\nNOTE: Visibility data is kilometers (km)"
+    },
+    "english": {
+        "desc": "English units (fahrenheit, feet, knots appropriate for the data)\nNOTE: Visibility data is Nautical Miles (nm)"
+    },
 }
 
 TIME_ZONES = {
-        "gmt": {"desc": "Greenwich Mean Time"},
-        "lst": {"desc": "Local Standard Time, not corrected for Daylight Saving Time, local to the requested station."},
-        "lst_ldt": {"desc": "Local Standard Time, corrected for Daylight Saving Time when appropriate, local to the requested station"},
+    "gmt": {"desc": "Greenwich Mean Time"},
+    "lst": {
+        "desc": "Local Standard Time, not corrected for Daylight Saving Time, local to the requested station."
+    },
+    "lst_ldt": {
+        "desc": "Local Standard Time, corrected for Daylight Saving Time when appropriate, local to the requested station"
+    },
 }
 
-INTERVALS = ["h", "hilo", "max_slack"] + [
-    str(x) for x in [1, 5, 6, 10, 15, 30, 60]
-]
+INTERVALS = ["h", "hilo", "max_slack"] + [str(x) for x in [1, 5, 6, 10, 15, 30, 60]]
 
 FORMATS = {
-        "xml": {"desc": "Extensible Markup Language. This format is an industry standard for data."},
-        "json": {"desc": "Javascript Object Notation. This format is useful for direct import to a javascript plotting library. Parsers are available for other languages such as Java and Perl."},
-        "csv": {"desc": "Comma Separated Values. This format is suitable for import into Microsoft Excel or other spreadsheet programs. "},
+    "xml": {
+        "desc": "Extensible Markup Language. This format is an industry standard for data."
+    },
+    "json": {
+        "desc": "Javascript Object Notation. This format is useful for direct import to a javascript plotting library. Parsers are available for other languages such as Java and Perl."
+    },
+    "csv": {
+        "desc": "Comma Separated Values. This format is suitable for import into Microsoft Excel or other spreadsheet programs. "
+    },
 }
 
 NOAA_STATIONS = pd.read_json(
-    Path(Path(__file__).parents[1] / "configs/noaa_stations.json"))
+    Path(Path(__file__).parents[1] / "configs/noaa_stations.json")
+)
 
-STATION_IDS = [int(x) for x in NOAA_STATIONS['ID'].dropna()]
+STATION_IDS = [int(x) for x in NOAA_STATIONS["ID"].dropna()]
 
-REGIONS = ['Alabama', 'Alaska', 'Bermuda', 'California',
-           'Map icon Caribbean/Central America', 'Caribbean/Central America',
-           'Connecticut', 'Delaware', 'District of Columbia', 'Florida',
-           'Georgia', 'Great Lakes - Detroit River',
-           'Map icon Great Lakes - Lake Erie', 'Great Lakes - Lake Erie',
-           'Lake Huron', 'Great Lakes - Lake Michigan',
-           'Great Lakes - Lake Ontario', 'Great Lakes - Lake St. Clair',
-           'Great Lakes - Lake Superior', 'Great Lakes - Niagra River',
-           'Great Lakes - St. Clair River',
-           'Great Lakes - St. Lawrence River',
-           'Great Lakes - St. Marys River', 'Hawaii', 'Louisiana', 'Maine',
-           'Maryland', 'Massachusetts', 'Mississippi', 'New Jersey',
-           'New York', 'North Carolina', 'Oregon', 'Pacific Islands',
-           'Pennsylvania', 'Rhode Island', 'South Carolina', 'Texas',
-           'Virginia', 'Washington']
+REGIONS = [
+    "Alabama",
+    "Alaska",
+    "Bermuda",
+    "California",
+    "Map icon Caribbean/Central America",
+    "Caribbean/Central America",
+    "Connecticut",
+    "Delaware",
+    "District of Columbia",
+    "Florida",
+    "Georgia",
+    "Great Lakes - Detroit River",
+    "Map icon Great Lakes - Lake Erie",
+    "Great Lakes - Lake Erie",
+    "Lake Huron",
+    "Great Lakes - Lake Michigan",
+    "Great Lakes - Lake Ontario",
+    "Great Lakes - Lake St. Clair",
+    "Great Lakes - Lake Superior",
+    "Great Lakes - Niagra River",
+    "Great Lakes - St. Clair River",
+    "Great Lakes - St. Lawrence River",
+    "Great Lakes - St. Marys River",
+    "Hawaii",
+    "Louisiana",
+    "Maine",
+    "Maryland",
+    "Massachusetts",
+    "Mississippi",
+    "New Jersey",
+    "New York",
+    "North Carolina",
+    "Oregon",
+    "Pacific Islands",
+    "Pennsylvania",
+    "Rhode Island",
+    "South Carolina",
+    "Texas",
+    "Virginia",
+    "Washington",
+]

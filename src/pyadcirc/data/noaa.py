@@ -10,15 +10,17 @@ import pdb
 from datetime import datetime, timedelta
 from io import StringIO
 from pathlib import Path
-from alive_progress import alive_bar
-from pyadcirc.viz import asciichart as ac
-from pyadcirc.data.utils import PRODUCTS, DATUMS, TIME_ZONES, \
-                                UNITS, INTERVALS, FORMATS, DATE_TIME, \
-                                STATION_IDS, NOAA_STATIONS, REGIONS
+
 import numpy as np
 import pandas as pd
 import requests
+from alive_progress import alive_bar
 from pandas.errors import EmptyDataError
+
+from pyadcirc.data.utils import (DATE_TIME, DATUMS, FORMATS, INTERVALS,
+                                 NOAA_STATIONS, PRODUCTS, REGIONS, STATION_IDS,
+                                 TIME_ZONES, UNITS)
+from pyadcirc.viz import asciichart as ac
 
 
 def parse_f15_station_list(region: str):
@@ -95,8 +97,9 @@ def get_station_metadata(station_id: int):
     """
 
     url = (
-        "https://api.tidesandcurrents.noaa.gov/mdapi/prod/webapi/stations/" +
-        f"{station_id}.json?expand=details?units=metric")
+        "https://api.tidesandcurrents.noaa.gov/mdapi/prod/webapi/stations/"
+        + f"{station_id}.json?expand=details?units=metric"
+    )
 
     # Get response from Metadata API
     response = requests.get(url, timeout=60)
@@ -144,16 +147,18 @@ def get_time_window(
         params["range"] = int(date_range)
         b_dt = e_dt - timedelta(hours=date_range)
     elif date is not None:
-        if (params["product"]
-                not in ["water_level", "one_minut_water_level", "predictions"]
-                or PRODUCTS[params["product"]]["group"] == "met"):
+        if (
+            params["product"]
+            not in ["water_level", "one_minut_water_level", "predictions"]
+            or PRODUCTS[params["product"]]["group"] == "met"
+        ):
             date = date.lower().capitalize()
             e_dt = datetime.now()
-            if date == 'Today':
+            if date == "Today":
                 b_dt = e_dt - timedelta(hours=24)
-            elif date == 'Latest':
+            elif date == "Latest":
                 b_dt = e_dt - timedelta(hours=72)
-            elif date == 'Recent':
+            elif date == "Recent":
                 b_dt = e_dt - timedelta(hours=0.3)
             else:
                 raise ValueError(f"Invalid date specified. Valid: {DATE_TIME.keys()}")
@@ -175,12 +180,10 @@ def get_time_window(
     return b_dt, e_dt, params
 
 
-def divide_date_range(params: dict, begin_date: datetime,
-                      end_date: datetime) -> dict:
-
-    config = PRODUCTS[params['product']]
-    if 'interval' in params.keys():
-        interval = params['interval']
+def divide_date_range(params: dict, begin_date: datetime, end_date: datetime) -> dict:
+    config = PRODUCTS[params["product"]]
+    if "interval" in params.keys():
+        interval = params["interval"]
     else:
         interval = "6"
 
@@ -194,7 +197,7 @@ def divide_date_range(params: dict, begin_date: datetime,
                 max_interval = timedelta(days=29)
             else:
                 raise ValueError("Met products can only have intervals [6, h]")
-        elif params['product'] == 'predictions':
+        elif params["product"] == "predictions":
             max_interval = timedelta(days=364)
         else:
             max_interval = timedelta(days=29)
@@ -228,7 +231,7 @@ def check_station_id(params: dict, station_id: int):
         url = "Find available statiosn at http://tidesandcurrents.noaa.gov/map/"
         raise ValueError(f"Invalid station id {station_id}. {url}")
 
-    params['station'] = station_id
+    params["station"] = station_id
 
     return params
 
@@ -274,8 +277,7 @@ def check_tz(params: dict, time_zone: str):
     """
     avail = TIME_ZONES.keys()
     if time_zone.lower() not in avail:
-        raise ValueError(
-            f"Invalid time_zone {time_zone}. Possible values: {avail}")
+        raise ValueError(f"Invalid time_zone {time_zone}. Possible values: {avail}")
 
     params["time_zone"] = time_zone
 
@@ -291,11 +293,10 @@ def check_interval(params: dict, interval: str):
     """
     avail = INTERVALS
     if str(interval).lower() not in avail:
-        raise ValueError(
-            f"Invalid interval {interval}. Possible values: {avail}")
+        raise ValueError(f"Invalid interval {interval}. Possible values: {avail}")
 
-    config = PRODUCTS[params['product']]
-    if params["product"] == "predictions" or config['group'] == 'met':
+    config = PRODUCTS[params["product"]]
+    if params["product"] == "predictions" or config["group"] == "met":
         params["interval"] = interval
 
     return params
@@ -311,7 +312,8 @@ def check_format(params: dict, output_format: str):
     avail = FORMATS.keys()
     if output_format.lower() not in avail:
         raise ValueError(
-            f"Invalid output format {output_format}. Possible values: {avail}")
+            f"Invalid output format {output_format}. Possible values: {avail}"
+        )
 
     params["format"] = output_format
 
@@ -328,8 +330,7 @@ def check_product(params: dict, product: str):
     avail = PRODUCTS.keys()
     product = product.lower()
     if product not in avail:
-        raise ValueError(
-            f"Invalid output format {product}. Possible values: {avail}")
+        raise ValueError(f"Invalid output format {product}. Possible values: {avail}")
 
     params["product"] = product
 
@@ -338,10 +339,10 @@ def check_product(params: dict, product: str):
 
 def get_tide_data(
     station_id,
-    product='predictions',
+    product="predictions",
     begin_date=None,
     end_date=None,
-    date='RECENT',
+    date="RECENT",
     date_range=None,
     output_format="csv",
     datum="msl",
@@ -363,8 +364,7 @@ def get_tide_data(
     params = check_interval(params, interval)
     params["application"] = application
 
-    b_dt, e_dt, params = get_time_window(params, begin_date, end_date, date,
-                                         date_range)
+    b_dt, e_dt, params = get_time_window(params, begin_date, end_date, date, date_range)
     params_list = divide_date_range(params, b_dt, e_dt)
     data = process_date_range(params_list)
 
@@ -376,7 +376,6 @@ def get_tide_data(
 
 
 def _make_request(params):
-
     # Build the URL for the API request
     url = "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter"
     response = requests.get(url, params=params, timeout=60)
@@ -394,15 +393,16 @@ def _make_request(params):
 
     # If the request was successful, read the content into an xarray dataarray
     if response.headers["Content-Type"] in [
-            "text/csv",
-            "text/comma-separated-values",
+        "text/csv",
+        "text/comma-separated-values",
     ]:
         data = pd.read_csv(StringIO(response.text))
     elif response.headers["Content-Type"] == "application/json":
         data = pd.read_json(response.text)
     else:
         raise ValueError(
-            f"Unrecognized Content-Type: {response.headers['Content-Type']}")
+            f"Unrecognized Content-Type: {response.headers['Content-Type']}"
+        )
 
     return data
 
@@ -411,19 +411,15 @@ def process_date_range(params, workers=8):
     # Call the command line tool in parallel on each interval
     df_list = []
     no_data = []
-    with concurrent.futures.ThreadPoolExecutor(
-            max_workers=workers) as executor:
-        future_to_input = {
-            executor.submit(_make_request, p): p
-            for p in params
-        }
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+        future_to_input = {executor.submit(_make_request, p): p for p in params}
         with alive_bar(
-                len(future_to_input),
-                unknown="waves",
-                bar="bubbles",
-                spinner="dots_waves",
-                receipt=False,
-                force_tty=True,
+            len(future_to_input),
+            unknown="waves",
+            bar="bubbles",
+            spinner="dots_waves",
+            receipt=False,
+            force_tty=True,
         ) as bar:
             for future in concurrent.futures.as_completed(future_to_input):
                 bar()  # update the progress bar
@@ -455,12 +451,9 @@ def process_date_range(params, workers=8):
     return full_df
 
 
-def noaa_url(station_id: int,
-             start_date: str,
-             end_date: str,
-             product: str,
-             params: dict = None):
-
+def noaa_url(
+    station_id: int, start_date: str, end_date: str, product: str, params: dict = None
+):
     if product not in PRODUCTS.keys():
         raise ValueError(f"Unsupported product {product}")
 
@@ -493,7 +486,7 @@ def wicks_2017_algo(
     shoulder_period=43200,
     chute_rule=9,
     interactive=True,
-    debug=False
+    debug=False,
 ):
     """
     Wicks 2017 Algorithm
@@ -503,17 +496,18 @@ def wicks_2017_algo(
     data.sort_index()
     continuity_threshold = continuity_threshold * trigger_threshold
     data["Difference"] = abs(data["Prediction"] - data["Water Level"])
-    data["TriggerThreshold"] = data["Difference"].apply(
-        lambda x: x > trigger_threshold)
+    data["TriggerThreshold"] = data["Difference"].apply(lambda x: x > trigger_threshold)
     data["ContinuityThreshold"] = data["Difference"].apply(
-        lambda x: x > continuity_threshold)
-    data["Group"] = (data["TriggerThreshold"].ne(
-        data["TriggerThreshold"].shift()).cumsum())
+        lambda x: x > continuity_threshold
+    )
+    data["Group"] = (
+        data["TriggerThreshold"].ne(data["TriggerThreshold"].shift()).cumsum()
+    )
 
-    if data['TriggerThreshold'].all() or data['ContinuityThreshold'].all():
+    if data["TriggerThreshold"].all() or data["ContinuityThreshold"].all():
         # Data itself is a whole event
         return [data]
-    elif not data['TriggerThreshold'].any():
+    elif not data["TriggerThreshold"].any():
         # No events in dataset
         return []
 
@@ -545,7 +539,8 @@ def wicks_2017_algo(
 
         # Check continuity condition and Lull Duration conditions
         continuity_condition = (
-            data["ContinuityThreshold"].iloc[group_idxs].eq(True).all())
+            data["ContinuityThreshold"].iloc[group_idxs].eq(True).all()
+        )
         merge = False
         reason = f"Distinct group {previous_index} found"
         if continuity_condition:
@@ -559,8 +554,7 @@ def wicks_2017_algo(
             # current index to the third from the current one
             new_group_idxs = groups >= previous_index
             if next_index is not None:
-                new_group_idxs = np.logical_and(new_group_idxs,
-                                                groups <= next_index)
+                new_group_idxs = np.logical_and(new_group_idxs, groups <= next_index)
 
             groups[new_group_idxs] = previous_index
             if debug:
@@ -580,27 +574,31 @@ def wicks_2017_algo(
                 )
         else:
             found_idxs = np.where(groups == previous_index)[0]
-            shoulder_timesteps = int(pd.to_timedelta(shoulder_period, "S") /
-                                     pd.to_timedelta(6, "m"))
-            found_idxs = np.hstack([
-                np.arange(found_idxs[0] - shoulder_timesteps, found_idxs[0]),
-                found_idxs,
-                np.arange(found_idxs[-1], found_idxs[-1] + shoulder_timesteps),
-            ])
+            shoulder_timesteps = int(
+                pd.to_timedelta(shoulder_period, "S") / pd.to_timedelta(6, "m")
+            )
+            found_idxs = np.hstack(
+                [
+                    np.arange(found_idxs[0] - shoulder_timesteps, found_idxs[0]),
+                    found_idxs,
+                    np.arange(found_idxs[-1], found_idxs[-1] + shoulder_timesteps),
+                ]
+            )
 
             # Apply Chute rule
-            found_idxs = np.hstack([
-                np.arange(found_idxs[0] - chute_rule, found_idxs[0]),
-                found_idxs,
-                np.arange(found_idxs[-1], found_idxs[-1] + chute_rule),
-            ])
+            found_idxs = np.hstack(
+                [
+                    np.arange(found_idxs[0] - chute_rule, found_idxs[0]),
+                    found_idxs,
+                    np.arange(found_idxs[-1], found_idxs[-1] + chute_rule),
+                ]
+            )
 
             # Add event to found events
             event = data.iloc[found_idxs].copy()
             event["Event Number"] = event_idx
             if interactive:
-                hrs = pd.to_timedelta(6 * len(found_idxs),
-                                      "m").seconds / (60 * 60)
+                hrs = pd.to_timedelta(6 * len(found_idxs), "m").seconds / (60 * 60)
                 response = ac.text_line_plot(
                     data.index[found_idxs].values,
                     data["Difference"][found_idxs].values,
@@ -624,13 +622,15 @@ def wicks_2017_algo(
     return found_events
 
 
-def get_event_dataset(station_id,
-                      trigger_threshold=1.0,
-                      continuity_thresold=0.9,
-                      lull_duration=21600,
-                      shoulder_period=43200,
-                      chute_rule=9,
-                      **kwargs):
+def get_event_dataset(
+    station_id,
+    trigger_threshold=1.0,
+    continuity_thresold=0.9,
+    lull_duration=21600,
+    shoulder_period=43200,
+    chute_rule=9,
+    **kwargs,
+):
     """
     Get Event Dataset
 
@@ -653,21 +653,23 @@ def get_event_dataset(station_id,
     if data is None or preds is None:
         raise EmptyDataError("No data found")
 
-    data = data.merge(preds, on='Date Time', how='left')
+    data = data.merge(preds, on="Date Time", how="left")
     data = data.sort_index()
 
-    data = data[~data.index.duplicated(keep='first')]
-    data['No Data'] = data['Water Level'].isna()
-    data['Data Groups'] = data['No Data'].ne(data['No Data'].shift()).cumsum()
-    data['Group Size'] = data.groupby('Data Groups')['Prediction'].transform(len)
-    data['Group Duration'] = data['Group Size']
-    data['Duration (Hours)'] = (data['Group Size'] * 6.0)/60.0
-    data['Duration Flag'] = data['Duration (Hours)'] >= 24.0
-    data['Valid Group Flag'] = ~data['No Data'] & data['Duration Flag'] & (data['Quality'] == 'v')
+    data = data[~data.index.duplicated(keep="first")]
+    data["No Data"] = data["Water Level"].isna()
+    data["Data Groups"] = data["No Data"].ne(data["No Data"].shift()).cumsum()
+    data["Group Size"] = data.groupby("Data Groups")["Prediction"].transform(len)
+    data["Group Duration"] = data["Group Size"]
+    data["Duration (Hours)"] = (data["Group Size"] * 6.0) / 60.0
+    data["Duration Flag"] = data["Duration (Hours)"] >= 24.0
+    data["Valid Group Flag"] = (
+        ~data["No Data"] & data["Duration Flag"] & (data["Quality"] == "v")
+    )
 
     events = []
-    for name, group in data.groupby('Data Groups'):
-        if not group['Valid Group Flag'].all():
+    for name, group in data.groupby("Data Groups"):
+        if not group["Valid Group Flag"].all():
             pass
         else:
             try:
@@ -682,7 +684,7 @@ def get_event_dataset(station_id,
                 )
                 events = events + group_events
             except Exception as e:
-                print(f'Group {name} of size {len(group)} threw error {e}')
+                print(f"Group {name} of size {len(group)} threw error {e}")
                 pass
 
     # Get events greater than 12 hours but less than days
@@ -691,17 +693,30 @@ def get_event_dataset(station_id,
             return True
         else:
             return False
+
     events_filtered = [e for e in events if len_filter(e)]
 
     for idx, e in enumerate(events_filtered):
-        e['Event ID'] = idx
-        e['Type'] = 'Positive' if not np.abs(
-                e['Water Level'].min()) > e['Water Level'].max() else 'Negative'
+        e["Event ID"] = idx
+        e["Type"] = (
+            "Positive"
+            if not np.abs(e["Water Level"].min()) > e["Water Level"].max()
+            else "Negative"
+        )
 
     all_events = pd.concat(events_filtered)
-    all_events['Date Time'] = all_events.index
-    all_events.set_index(['Event ID'], inplace=True)
-    all_events = all_events[['Type', 'Date Time', 'Prediction',
-                             'Water Level', 'Sigma', 'Difference', 'Duration (Hours)']]
+    all_events["Date Time"] = all_events.index
+    all_events.set_index(["Event ID"], inplace=True)
+    all_events = all_events[
+        [
+            "Type",
+            "Date Time",
+            "Prediction",
+            "Water Level",
+            "Sigma",
+            "Difference",
+            "Duration (Hours)",
+        ]
+    ]
 
     return all_events
