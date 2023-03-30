@@ -1,13 +1,18 @@
 import six
-import click
 from pyfiglet import figlet_format
 
-from pyadcirc.viz.figuregen import config
 
 try:
     from termcolor import colored
 except ImportError:
     colored = None
+
+import rich_click as click
+from rich_click.cli import patch
+
+patch()
+
+from pyadcirc.viz.figuregen import config
 
 
 @click.group()

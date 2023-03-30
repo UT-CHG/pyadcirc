@@ -100,12 +100,8 @@ def get_help_text(
     else:
         items = [(option, category[option])]
     for key, val in items:
-        key_text = colored(key, key_color) if key_color is not None else key
-        val_text = (
-            colored(val["desc"], value_color)
-            if value_color is not None
-            else val["desc"]
-        )
+        key_text = f"[bold {key_color}] {key} [/bold {key_color}]"
+        val_text = f"[bold {value_color}] {val['desc']} [/bold {value_color}]"
         help_text += f"{key_text} : {val_text} \n\n"
 
     if line_length is not None:
@@ -207,26 +203,16 @@ product_help_text = [
 ]
 
 
+key_color = "yellow"
+value_color = "blue"
 DATE_TIME = {
-    "begin_date": "".join(
-        [
-            colored("Use with either: ", color="blue"),
-            colored("end_date", color="yellow"),
-            " : ",
-            colored("to express an explicit date range, or with ", color="blue"),
-            colored("date_range", color="yellow"),
-            " : ",
-            colored(
-                "".join(
-                    [
-                        "to express a date range (in hours) of ti",
-                        "me starting from a certain date.",
-                    ]
-                ),
-                color="blue",
-            ),
-        ]
-    ),
+    "begin_date": (
+      f"[{value_color}] Use with either: [/{value_color}]" +
+      f"[bold {key_color}] end_date [/bold {key_color}]" +
+      f"[{value_color}] to express an explicit date range, or with " +
+      f"[/{value_color}][bold {key_color}] date_range [/bold {key_color}]" +
+      f"[{value_color}] to express a date range (in hours) of time starting " +
+      f"from a certain date. [/{value_color}]"),
     "end_date": "".join(
         [
             colored("Use with either: ", color="blue"),

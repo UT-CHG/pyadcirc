@@ -5,7 +5,6 @@ import pdb
 import sys
 from pathlib import Path
 
-import click
 import pandas as pd
 from pandas.errors import EmptyDataError
 from termcolor import colored
@@ -14,6 +13,27 @@ from pyadcirc.data import noaa
 from pyadcirc.data.utils import (get_banner_text, get_help_text,
                                  make_pretty_table)
 from pyadcirc.viz import asciichart as ac
+
+from rich.console import Console
+
+import rich_click as click
+from rich_click.cli import patch
+
+click.rich_click.USE_RICH_MARKUP = True
+
+
+patch()
+console = Console()
+
+url = 'https://api.tidesandcurrents.noaa.gov/api/prod/'
+
+
+def _get_header():
+    """
+    Print heading
+    """
+    print(get_banner_text(title="NOAA API"))
+    console.print(f'Python wrapper around: {url}\n\n')
 
 
 def _save_output(data, output_file, output_format):
@@ -30,7 +50,6 @@ def _save_output(data, output_file, output_format):
 @click.group()
 def data():
     """Commands for interacting with the NOAA API"""
-    print(get_banner_text(title="NOAA CO-OPS"))
     pass
 
 
@@ -70,11 +89,8 @@ def stations(region=None, name="."):
 @data.command()
 def info():
     """Info on available products"""
-    colored_url = colored(
-        "https://api.tidesandcurrents.noaa.gov/api/prod/", "red", attrs=["underline"]
-    )
-    print(f"See {colored_url} for more on products")
     print(get_help_text(noaa.PRODUCTS))
+    console.print(f"See {url} for more on products")
 
 
 @data.command()
@@ -84,7 +100,7 @@ def info():
     "-p",
     default="metadata",
     type=click.Choice(list(noaa.PRODUCTS.keys())),
-    help=get_help_text(noaa.PRODUCTS),
+    help="See 'noaa_data info' for more info on products avialable", # get_help_text(noaa.PRODUCTS),
 )
 @click.option(
     "--begin_date",
@@ -363,3 +379,6 @@ def find_events(
         _save_output(data, output_file, output_format)
 
     return data
+
+
+_get_header()
