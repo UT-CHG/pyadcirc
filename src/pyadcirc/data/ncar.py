@@ -32,7 +32,7 @@ import pandas as pd
 import requests
 from prettytable import PrettyTable
 from pyadcirc.utils import sizeof_fmt, check_file_status
-from pyadcirc.io import cfsv2_grib_to_adcirc_owi
+from pyadcirc.io.io import cfsv2_grib_to_adcirc_owi
 
 
 class NCARGlobusDataTransfer(object):
