@@ -17,6 +17,8 @@ from typing import List, Tuple
 import numpy as np
 import pandas as pd
 import xarray as xr
+import dask
+from dask.diagnostics import ProgressBar
 
 from pyadcirc.utils import get_bbox, regrid
 from pyadcirc import __version__
@@ -29,6 +31,8 @@ _logger = logging.getLogger(__name__)
 pd.options.display.float_format = "{:,.10f}".format
 logger = logging.getLogger("adcirc_io")
 
+
+dask.config.set ({"array.slicing.split_large_chunks": False})
 
 @contextmanager
 def timing(label: str):
@@ -1915,7 +1919,7 @@ def cfsv2_grib_to_adcirc_netcdf(
 
     """
     # Open data-set
-    pdb.set_trace()
+    # pdb.set_trace()
     # TODO: Group by ds type and then loop through each type
     # Deal with different ds formats for each type.
     # format for filename is <field>.<type>.<date>.grb2
@@ -1924,7 +1928,8 @@ def cfsv2_grib_to_adcirc_netcdf(
     # as in 'prmsl.cdas1.201801.grb2' and 'prmsl.l.cdas1.201801.grb2'
     # .l. dataset is coarser data. pick it to start. if no data over grid user finer.
     # ad option to force using finer dataset.
-    data = xr.open_mfdataset(files, engine="cfgrib", lock=False)
+    # data = xr.open_mfdataset(files, engine="cfgrib", lock=False)
+    data = xr.open_mfdataset(files)
 
     # Filter according to passed in args
     if bounding_box is not None:
@@ -1945,9 +1950,16 @@ def cfsv2_grib_to_adcirc_netcdf(
     for x in drop:
         data = data.drop(x)
 
+    pdb.set_trace()
+
     # Write only if necessary
     if output_name is not None:
         data.to_netcdf(output_name)
+
+    write_job = data.to_netcdf(output_name, compute=False)
+    with ProgressBar():
+        print(f"Writing to {out_file}")
+        write_job.compute()
 
     return data
 
