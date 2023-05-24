@@ -17,6 +17,8 @@ from typing import List, Tuple
 import numpy as np
 import pandas as pd
 import xarray as xr
+import dask
+from dask.diagnostics.progress import ProgressBar
 
 from pyadcirc.utils import get_bbox, regrid
 from pyadcirc import __version__
@@ -30,6 +32,8 @@ pd.options.display.float_format = "{:,.10f}".format
 logger = logging.getLogger("adcirc_io")
 
 
+dask.config.set ({"array.slicing.split_large_chunks": False})
+
 @contextmanager
 def timing(label: str):
     t0 = perf_counter()
@@ -37,64 +41,157 @@ def timing(label: str):
     t1 = perf_counter()
 
 
-def read_param_line(out, params, f, ln=None, dtypes=None):
-    if ln:
-        line = lc.getline(f, ln)
-    else:
-        line = f.readline().strip()
+def read_param_line(out, params, f, ln=1, dtypes=None):
+    """
+    Read a line containing parameters from a fort file and store them in a dictionary
+    ADCIRC fort.* file parameter lines are the off the form:
+
+    <param1> ... <paramN> ! <param1_name>,...,<paramN_name>
+
+    Where the ! comes at the 80th column and the <paramN_name> are optional.
+
+    Parameters
+    ----------
+    out : dict
+        Dictionary to store the attributes.
+    params : list of str
+        Names of the attributes.
+    f : file
+        File to read from.
+    ln : int, optional
+        Line number to read from. If None, read from the next line in the file.
+    dtypes : list of types, optional
+        Data types to cast the parameter values. If None, use the default string values.
+
+    Returns
+    -------
+    out : dictionary
+        Dictioanry with parameter values from read in line in file.
+    ln : int
+        Line number of the next line to read.
+    """
+    ln = 1 if ln is None else ln
+    line = lc.getline(f, ln)
     logger.info(",".join(params) + " : " + line)
     vals = [x for x in re.split("\\s+", line) if x != ""]
     for i in range(len(params)):
         try:
             if dtypes:
-                out.attrs[params[i]] = dtypes[i](vals[i])
+                out[params[i]] = dtypes[i](vals[i])
             else:
-                out.attrs[params[i]] = vals[i]
+                out[params[i]] = vals[i]
         except ValueError:
-            out.attrs[params[i]] = np.nan
+            out[params[i]] = np.nan
         except IndexError:
-            out.attrs[params[i]] = np.nan
+            out[params[i]] = np.nan
 
-    if ln:
-        ln += 1
-        return out, ln
-    else:
-        return out
+    ln += 1
+    return out, ln
 
 
-def read_text_line(out, param, f, ln=None):
-    if ln:
-        line = lc.getline(f, ln).strip()
-    else:
-        line = f.readline().strip()
+def read_text_line(out, param, f, ln=1):
+    """"
+    Reads a line of text from a fort file and stores it in the out dataset as an attribute
+    
+    Parameters
+    ----------
+    out : dict
+        Dictioanry to store the attribute
+    param : str
+        Name of the attribute
+    f : file
+        File to read from
+    ln : int, optional
+        Line number to read from. If None, read from the next line in the file
+    
+    Returns
+    -------
+    out : dict
+        Dictionary with the new attribute
+    ln : int
+        Line number of the next line to read
+    """
+    ln = 1 if ln is None else ln
+    line = lc.getline(f, ln).strip()
     logger.info(param + " : " + line)
-    out.attrs[param] = line
-    if ln:
-        ln += 1
-        return out, ln
-    else:
-        return out
+    out[param] = line
+    ln += 1
+    return out, ln
 
 
 def write_numeric_line(vals, f):
+    """
+    Write a numeric line to a fort file.
+
+    Parameters
+    ----------
+    vals : List of numeric values
+        Values to write to file in a single line, space separated.
+    f : file
+        File to write the values to.
+        
+    """
     line = " ".join([str(v) for v in vals])
     f.write(line + "\n")
 
 
-def write_param_line(ds, params, f):
-    if type(ds) == xr.Dataset:
-        line = " ".join([str(ds.attrs[p]) for p in params])
+def write_param_line(params, keys, f):
+    """"
+    Write a parameter line to a fort file.
+
+    If the input dataset (`ds`) is of type `xr.Dataset`, it retrieves the attribute values corresponding to the provided `params` and writes them to the file. Otherwise, it assumes `ds` is an iterable and writes its values directly to the file.
+
+    The parameter values are separated by spaces. If the resulting line is shorter than 80 characters, it pads the line with spaces to reach 80 characters and appends the parameter names (`params`) preceded by an exclamation point '!'. If the resulting line exceeds 80 characters, it logs a warning message.
+
+    Parameters
+    ----------
+    ds : xr.Dataset or iterable
+        Dataset or iterable containing the parameter values.
+    params : list of str
+        Names of the parameters.
+    f : file
+        File to write the parameter line to.
+
+    Returns
+    -------
+    None
+        This function writes the parameter line directly to the file.
+    """
+    if isinstance(params, dict):
+        line = " ".join([str(params[k]) for k in keys])
     else:
-        line = " ".join([str(x) for x in ds])
+        line = " ".join([str(x) for x in params])
     if len(line) < 80:
-        line += ((80 - len(line)) * " ") + "! " + ",".join(params)
+        line += ((80 - len(line)) * " ") + "! " + ",".join(keys)
     else:
         logger.warning("WARNING - fort config files shouldn't be wider than 80 cols!")
-    logger.info("Writing param line for " + ",".join(params) + " - " + line)
+    logger.info("Writing param line for " + ",".join(keys) + " - " + line)
     f.write(line + "\n")
 
 
-def write_text_line(ds, param, f):
+def write_text_line(ds : xr.Dataset,
+                    param : str,
+                    f : str,
+                    comment_char : str = '!'):
+    """"
+    Write a text line to a file.
+    
+    If the input dataset (`ds`) is of type `xr.Dataset`, it retrieves the attribute value corresponding to the provided `param` and writes it to the file. Otherwise, it assumes `ds` is a string and writes it directly to the file.
+
+    Parameters
+    ----------
+    ds : xr.Dataset or str
+        Dataset or string containing the text line.
+    param : str
+        Name of the parameter.
+    f : file
+        File to write the text line to.
+        
+    Returns
+    -------
+    None
+        This function writes the text line directly to the file.
+    """
     if type(ds) == xr.Dataset:
         line = ds.attrs[param]
     else:
@@ -102,174 +199,354 @@ def write_text_line(ds, param, f):
     logger.info("Writing text line for " + param + " - " + line)
     if len(line) < 80:
         if param != "":
-            line += ((80 - len(line)) * " ") + "! " + param
+            line += ((80 - len(line)) * " ") + f"{comment_char} {param}"
     else:
         logger.warning("WARNING - fort config files shouldn't be wider than 80 cols!")
     f.write(line + "\n")
 
-
-def read_fort14(f14_file, ds=None, load_grid=True):
-    """read_fort14.
-    Reads in ADCIRC fort.14 f14_file
-
-    :param f14_file: Path to Python file.
+def read_fort14_params(f14_file: str = 'fort.14'):
     """
-    if type(ds) != xr.Dataset:
-        ds = xr.Dataset()
+    Reads only in parameters and no grind/boundary information from fort.14 file.
 
+    These pareamters include:
+        - AGRID: alpha-numeric grid identification (<=24 characters).
+        - NE: number of elements in horizontal grid
+        - NP: number of nodes in horizontal grid
+        - NOPE: number of elevation specified boundary forcing segments
+        - NETA: total number of elevation specified boundary nodes
+        - NBOU: number of normal flow (discharge) specified boundary segments
+        - NVEL: total number of normal flow specified boundary nodes
+
+    Parameters
+    ----------
+    f14_file : str
+        Path to fort.14 file
+    
+    Returns
+    -------
+    params : dict
+        Dictionary containing the fort.14 parameters
+    """
     # 1 : AGRID = alpha-numeric grid identification (<=24 characters).
-    ds, ln = read_text_line(ds, "AGRID", f14_file, ln=1)
+    params, _ = read_text_line({}, "AGRID", f14_file, ln=1)
 
     # 2 : NE, NP = number of elements, nodes in horizontal grid
-    ds, ln = read_param_line(ds, ["NE", "NP"], f14_file, ln=ln, dtypes=2 * [int])
+    params, _ = read_param_line(params, ["NE", "NP"], f14_file, ln=2, dtypes=2 * [int])
 
-    # 3-NP : NODES
-    # for k=1 to NP
-    #    JN, X(JN), Y(JN), DP(JN)
-    # end k loop
-    if load_grid:
-        logger.info("Reading Node Map.")
-        ds = xr.merge(
-            [
-                ds,
-                pd.read_csv(
-                    f14_file,
-                    delim_whitespace=True,
-                    nrows=ds.attrs["NP"],
-                    skiprows=ln - 1,
-                    header=None,
-                    names=["JN", "X", "Y", "DP"],
-                )
-                .set_index("JN")
-                .to_xarray(),
-            ],
-            combine_attrs="override",
+    # 3 + NE + NP : NOPE
+    params, _ = read_param_line(
+        params, ["NOPE"], f14_file,
+        ln=3 + params['NE'] + params['NP'],
+        dtypes=[int])
+
+    # 4 + NE + NP : NETA
+    params, _ = read_param_line(
+        params, ["NETA"], f14_file,
+        ln=4 + params['NE'] + params['NP'],
+        dtypes=[int])
+
+    # 5 + NE + NP + (NETA + NOPE) : NBOU
+    params, _ = read_param_line(
+        params, ["NBOU"], f14_file,
+        ln=5 + params['NE'] + params['NP'] + \
+            params['NETA'] + params['NOPE'],
+        dtypes=[int])
+
+    # 6 + NE + NP + (NETA + NOPE) : NVEL
+    params, _ = read_param_line(
+        params, ["NVEL"], f14_file,
+        ln=6 + params['NE'] + params['NP'] + \
+            params['NETA'] + params['NOPE'],
+        dtypes=[int])
+    
+    return params
+
+
+def read_fort14_node_map(f14_file : str = 'fort.14',
+                         params : dict = None,
+                         comment_char: str = '='):
+    """
+    Reads node map from fort.14.
+
+    Parameters
+    ----------
+    f14_file : str, default = 'fort.14'
+        Path to fort.14 file.
+    params : dict, optional
+        Dataset containing already loaded in f14 parameters. If None, load in the parameters first from the fort.14 file.
+    comment_char : str, default = '='
+        Character to use as a comment character in the fort.14 file.
+
+    Returns
+    -------
+    node_map : pd.DataFrame
+        DataFrame indexed by node number, and with columns 'X', 'Y', and 'DP', with 'X' and 'Y' being the x and y coordinates of the node, and 'DP' being the bathymetric depth at the node.
+    """
+    params = read_fort14_params(f14_file) if params is None else params
+
+    node_map = pd.read_csv(
+                f14_file,
+                delim_whitespace=True,
+                nrows=params["NP"],
+                skiprows=2,
+                header=None,
+                names=["JN", "X", "Y", "DP"],
+                comment=comment_char,
+            )
+
+    return node_map
+
+
+def read_fort14_element_map(f14_file : str = 'fort.14',
+                            params : dict = None,
+                            comment_char: str = '='):
+    """
+    Reads in triangular element map from fort.14 as a pandas DataFrame.
+
+    Parameters
+    ----------
+    f14_file : str, default = 'fort.14'
+        Path to fort.14 file.
+    params : dict, optional
+        Dictioanry containing already loaded in f14 parameters. If None, load in the parameters first from the fort.14 file.
+    comment_char : str, default = '='
+        Character to use as a comment character in the fort.14 file.
+
+    Returns
+    -------
+    element_map : pd.DataFrame
+        DataFrame indexed by element number, and with columns 'NHY', 'NM_1', 'NM_2', and 'NM_3', with 'NHY' being the number of nodes in the element (always 3 for triangular elements), and 'NM_1', 'NM_2', and 'NM_3' being the node numbers of the element.
+    """
+    params = read_fort14_params(f14_file) if params is None else params
+
+    element_map = pd.read_csv(
+        f14_file,
+        delim_whitespace=True,
+        nrows=params['NE'],
+        skiprows=2 + params['NP'],
+        header=None,
+        names=['JE', 'NHY', 'NM_1', 'NM_2', 'NM_3'], 
+        comment=comment_char,
         )
-    ln += ds.attrs["NP"]
 
-    # (2+NP)-(2+NP+NE) : ELEMENTS
-    # for k=1 to NE
-    #    JE, NHY, NM(JE,1),NM(JE,2), NM(JE,3)
-    # end k loop
-    if load_grid:
-        logger.info("Reading Element Map.")
-        ds = xr.merge(
-            [
-                ds,
-                pd.read_csv(
-                    f14_file,
-                    delim_whitespace=True,
-                    nrows=ds.attrs["NE"],
-                    skiprows=ln - 1,
-                    header=None,
-                    names=["JE", "NHEY", "NM_1", "NM_2", "NM_3"],
-                )
-                .set_index("JE")
-                .to_xarray(),
-            ],
-            combine_attrs="override",
-        )
-    ln += ds.attrs["NE"]
+    return element_map
 
-    # (3+NP+NE) : NOPE = number of elevation specified boundary forcing segments.
-    ds, ln = read_param_line(ds, ["NOPE"], f14_file, ln=ln, dtypes=[int])
+def read_fort14_elev_boundary(f14_file : str = 'fort.14',
+                              ds : xr.Dataset = None):
+    """
+    Reads boundary information from fort.14 for elevation specified boundaries.
 
-    # (4+NP+NE) : NETA = total number of elevation specified boundary nodes
-    ds, ln = read_param_line(ds, ["NETA"], f14_file, ln=ln, dtypes=[int])
+    Parameters
+    ----------
+    f14_file : str, default = 'fort.14'
+        Path to fort.14 file.
+    ds : xr.Dataset, optional
+        Dataset containing already loaded in f14 parameters. If None, load in the parameters first from the fort.14 file.
 
-    # Rest of the file contains boundary information. Read all at once
-    bounds = pd.read_csv(
-        f14_file, delim_whitespace=True, header=None, skiprows=ln - 1, usecols=[0]
+    
+    Returns
+    -------
+    elev_boundary : pd.DataFrame
+        DataFrame indexed by boundary segment, and with columns 'JN' and 'IBTYPEE', with 'IBTYPEE' being the boundary type for the elevation specified boundary segment (always 0 for elevation boundaries) and 'JN' being the node number of the boundary node for the elevation specified boundary segment.
+    """
+    ds = read_fort14_params(f14_file) if ds is None else ds
+    start_line = 4 + ds.attrs['NE'] + ds.attrs['NP']
+
+    elev_boundary = pd.read_csv(
+        f14_file,
+        delim_whitespace=True,
+        header=None,
+        skiprows=start_line,
+        nrows=ds.attrs['NOPE'] + ds.attrs['NETA'],
+        usecols=[0],
+        names=['JN']
     )
-    bounds["BOUNDARY"] = None
-    bounds["IBTYPEE"] = None
-    bounds["IBTYPE"] = None
-    bounds = bounds.rename(columns={0: "BOUNDARY_NODES"})
+    elev_boundary["IBTYPEE"] = 0
+    elev_boundary["BOUNDARY"] = None
 
+    # Select segments by those that ONLY have first two columns as non NA values
+    
     # Get elevation sepcified boundary forcing segments
-    bnd_idx = 0
+    start_idx = 0
+    segments = ds.attrs['NOPE']*[None]
     for i in range(ds.attrs["NOPE"]):
-        sub = xr.Dataset()
-        logger.info("Reading NOPE #" + str(i))
+        num_nodes = elev_boundary.loc[start_idx, 'JN']
+        segments[i] = [i, num_nodes]
+        start_idx += num_nodes + 1
+    segments = pd.DataFrame(segments, columns=['BOUNDARY', 'num_nodes'])
+    segments['counter'] = 1     # Extra line with ibytpe per segment
+    segments['end_idx'] = segments['num_nodes'].cumsum()
+    segments['start_idx'] = segments['end_idx'].shift(1).fillna(0).astype(int)
+    segments['f14_start_idx'] = start_line + segments['start_idx'] + segments['counter'].cumsum() # 2 + segments['f14_end_idx'].shift(1).fillna(2 + start_line).astype(int)
+    segments['f14_end_idx'] = segments['f14_start_idx'] + segments['num_nodes']
+    segments['IBTYPEE'] = 0
+    segments = segments[['BOUNDARY', 'IBTYPEE', 'start_idx', 'end_idx', 'f14_start_idx', 'f14_end_idx']].set_index('BOUNDARY')
+    node_df = elev_boundary[~elev_boundary.index.isin(segments['f14_start_idx'] - start_line)][['JN']]
 
-        # NVDLL(k), IBTYPEE(k) = number of nodes, and boundary type
-        sub, ln = read_param_line(
-            sub, ["NVDLL", "IBTYPEE"], f14_file, ln=ln, dtypes=2 * [int]
-        )
-        bounds = bounds.drop(bnd_idx)
-        bounds.loc[bnd_idx : bnd_idx + sub.attrs["NVDLL"], "BOUNDARY"] = i
-        bounds.loc[bnd_idx : bnd_idx + sub.attrs["NVDLL"], "IBTYPEE"] = sub.attrs[
-            "IBTYPEE"
-        ]
-        ln += sub.attrs["NVDLL"]
-        bnd_idx += sub.attrs["NVDLL"] + 1
+    return {'segments': segments, 'nodes': node_df}
 
-    bounds["BOUNDARY_NODES"] = bounds["BOUNDARY_NODES"].astype(int)
-    elev_bounds = bounds[["BOUNDARY", "BOUNDARY_NODES", "IBTYPEE"]].dropna()
-    elev_bounds["ELEV_BOUNDARY"] = elev_bounds["BOUNDARY"].astype(int)
-    elev_bounds["ELEV_BOUNDARY_NODES"] = elev_bounds["BOUNDARY_NODES"].astype(int)
-    elev_bounds["IBTYPEE"] = elev_bounds["IBTYPEE"].astype(int)
-    elev_bounds = elev_bounds.drop(["BOUNDARY", "BOUNDARY_NODES"], axis=1)
-    ds = xr.merge(
-        [ds, elev_bounds.set_index("ELEV_BOUNDARY").to_xarray()],
-        combine_attrs="override",
+def read_fort14_flow_boundary(f14_file : str = 'fort.14',
+                              ds : xr.Dataset = None,
+                              comment_char : str = '='):
+    """
+    Reads boundary information from fort.14 for normal flow specified boundaries.
+
+    Parameters
+    ----------
+    f14_file : str, default = 'fort.14'
+        Path to fort.14 file.
+    ds : xr.Dataset, optional
+        Dataset containing already loaded in f14 parameters. If None, load in the parameters first from the fort.14 file.
+
+    
+    Returns
+    -------
+    ds : xr.Dataset
+        Dataset containing the element map information.
+    """
+    ds = read_fort14_params(f14_file) if ds is None else ds
+    start_line = 6 + ds.attrs['NE'] + ds.attrs['NP'] + ds.attrs['NOPE'] + ds.attrs['NETA']
+
+    max_cols = 7
+    flow_boundary = pd.read_csv(
+        f14_file,
+        delim_whitespace=True,
+        header=None,
+        skiprows=start_line,
+        nrows=ds.attrs['NBOU'] + ds.attrs['NVEL'],
+        names=range(max_cols),
+        comment='=',
     )
+    flow_boundary[0] = flow_boundary[0].astype(int)
+    flow_boundary["IBTYPEE"] = 0
+    flow_boundary["BOUNDARY"] = None
 
-    # NBOU = number of normal flow (discharge) specified boundary segments
-    bounds = bounds.drop(bnd_idx)
-    bnd_idx += 1
-    ds, ln = read_param_line(ds, ["NBOU"], f14_file, ln=ln, dtypes=[int])
+    # Select segments by those that ONLY have first two columns as non NA values
+    segments = flow_boundary[flow_boundary.iloc[:, :2].notna().all(axis=1)][[0, 1]].reset_index()
+    segments['BOUNDARY'] = segments.index + 1
+    segments['num_nodes'] = segments[0].astype(int)
+    segments['counter'] = 1     # Extra line with ibytpe per segment
+    segments['end_idx'] = segments['num_nodes'].cumsum()
+    segments['start_idx'] = segments['end_idx'].shift(1).fillna(0).astype(int)
+    segments['f14_start_idx'] = start_line + segments['start_idx'] + segments['counter'].cumsum() # 2 + segments['f14_end_idx'].shift(1).fillna(2 + start_line).astype(int)
+    segments['f14_end_idx'] = segments['f14_start_idx'] + segments['num_nodes']
+    segments['IBTYPE'] = segments[1].astype(int)
+    segments = segments[['BOUNDARY', 'IBTYPE', 'start_idx', 'end_idx', 'f14_start_idx', 'f14_end_idx']].set_index('BOUNDARY')
+    node_df = flow_boundary[~flow_boundary.iloc[:, :2].notna().all(axis=1)][range(max_cols)].rename(columns={0: 'JN'})
 
-    # NVEL = total number of normal flow specified boundary nodes
-    bounds = bounds.drop(bnd_idx)
-    bnd_idx += 1
-    ds, ln = read_param_line(ds, ["NVEL"], f14_file, ln=ln, dtypes=[int])
+    return {'segments': segments, 'nodes': node_df}
 
-    # Get flow sepcified boundary segments
-    for i in range(ds.attrs["NBOU"]):
-        sub = xr.Dataset()
-        logger.info("Reading NBOU #" + str(i))
+class ADCIRCGrid(object):
+    """
+    ADCIRC Grid Class
+    
+    Defines an ADCIRC grid which consists of node map, element map, and boundary information. 
 
-        # NVELL(k), IBTYPE(k)
-        sub, ln = read_param_line(
-            sub, ["NVELL", "IBTYPE"], f14_file, ln=ln, dtypes=2 * [int]
-        )
-        bounds = bounds.drop(bnd_idx)
-        bounds.loc[bnd_idx : bnd_idx + sub.attrs["NVELL"], "BOUNDARY"] = (
-            i + ds.attrs["NOPE"]
-        )
-        bounds.loc[bnd_idx : bnd_idx + sub.attrs["NVELL"], "IBTYPE"] = sub.attrs[
-            "IBTYPE"
-        ]
-        ln += sub.attrs["NVELL"]
-        bnd_idx += sub.attrs["NVELL"] + 1
+    Attributes
+    ----------
+    node_map : pd.DataFrame
+        DataFrame indexed by node number, and with columns 'X', 'Y', and 'DP', with 'X' and 'Y' being the x and y coordinates of the node, and 'DP' being the bathymetric depth at the node.
+    element_map : pd.DataFrame
+        DataFrame indexed by element number, and with columns 'NHY', 'NM_1', 'NM_2', and 'NM_3', with 'NHY' being the number of nodes in the element (always 3 for triangular elements), and 'NM_1', 'NM_2', and 'NM_3' being the node numbers of the element.
+    elev_boundary : pd.DataFrame
+        DataFrame indexed by boundary segment, and with columns 'JN' and 'IBTYPEE', with 'IBTYPEE' being the boundary type for the elevation specified boundary segment (always 0 for elevation boundaries) and 'JN' being the node number of the boundary node for the elevation specified boundary segment.
+    flow_boundary : pd.DataFrame
+        DataFrame indexed by boundary segment, and with columns 'JN' and 'IBTYPE', with 'IBTYPE' being the boundary type for the normal flow specified boundary segment (always 20 or 21 for normal flow boundaries) and 'JN' being the node number of the boundary node for the normal flow specified boundary segment.
+    """
+    def __init__(self,
+                 f14_file : str = 'fort.14',
+                 load : bool = True):
+       
+        self.element_map = None 
+        self.node_map = None
+        self.elev_boundary = None
+        self.flow_boundary = None
+        if load:
+            if not Path(f14_file).exists():
+                raise FileNotFoundError(f"fort.14 file at {f14_file} not found")
+            self.f14 = f14_file
 
-    normal_bounds = bounds[["BOUNDARY", "BOUNDARY_NODES", "IBTYPE"]].dropna()
-    normal_bounds["NORMAL_BOUNDARY"] = (
-        normal_bounds["BOUNDARY"].astype(int) - ds.attrs["NOPE"]
-    )
-    normal_bounds["NORMAL_BOUNDARY_NODES"] = normal_bounds["BOUNDARY_NODES"].astype(int)
-    normal_bounds["IBTYPE"] = normal_bounds["IBTYPE"].astype(int)
-    normal_bounds = normal_bounds.drop(["BOUNDARY", "BOUNDARY_NODES"], axis=1)
-    ds = xr.merge(
-        [ds, normal_bounds.set_index("NORMAL_BOUNDARY").to_xarray()],
-        combine_attrs="override",
-    )
+    def load(self,
+                 comment_char : str = '=',
+                 load_grid : bool = True):
+        """
+        Reads in ADCIRC fort.14 file, which conatins grid and boundary information.
+        Grid information includes the number of elements, nodes, node map, triangular element
+        map, bathymetry at each node, and boundary conditions.
+        
+        See documentation at https://adcirc.org/home/documentation/users-manual-v53/input-file-descriptions/adcirc-grid-and-boundary-information-file-fort-14/. For
+        more information on the fort.14 file format.
 
-    return ds
+        Parameters
+        ----------
+        f14_file : str
+            Path to fort.14 file
+        """
+        ds = ds if type(ds) == xr.Dataset else xr.Dataset()
+
+        ds = read_fort14_params(f14_file) if ds is None else ds
+        self.element_map = read_fort14_node_map(f14_file, ds, comment_char=comment_char)
+        self.node_map = read_fort14_element_map(f14_file, ds, comment_char=comment_char)
+        self.elev_boundary = read_fort14_elev_boundary(f14_file, ds)
+        self.flow_boundary = read_fort14_flow_boundary(f14_file, ds)
+
+class ADCIRCSimulation(object):
+    """
+    ADCIRC Simulation Class
+
+    Base class with minimal parameters for a 2D ADCIRC run
+
+    Attributes
+    ----------
+    f14 : str 
+        Path to fort.14 (Grid and Boundary conditions) file. Checks if file exists upon setting.
+    f15 : str 
+        Path to fort.15 (Control and Tide Configurations) file. Checks if file exists upon setting.
+
+    """
+    def __init__(self,
+                 dir_path : str = None,
+                 f14_path : str = 'fort.14',
+                 f15_path : str = 'fort.15'):
+        dir_path = Path(dir_path) if dir_path is not None else Path.cwd()
+        self.f14 = dir_path / f14_path
+        self.f15 = dir_path / f15_path
+        self.grid = ADCIRCGrid(self.f14)
+
+    @property
+    def f14(self):
+        return self.source_files['14']
+
+    @f14.setter
+    def f14(self, f14_path):
+        if not Path(f14_path).exists():
+            raise FileNotFoundError(f"ADCIRC fort.14 (Grid and Boundary conditions) file at {str(f14_path)} not found")
+        self.f14 = f14_path
 
 
-def read_fort15(f15_file, ds=None):
-    """read_fort15.
-    Reads in ADCIRC fort.15 f15_file
-
-    :param f15_file: Path to Python file.
+def read_fort15(f15_file, ds):
+    """
+    Reads in ADCIRC fort.15 f15_file, which contains the model parameter and periodic boundary conditions. This file contains the majority of parameters that control the execution of an ADCIRC run, along with harmonic boundary conditions (either elevation or flux).
+    
+    Parameters
+    ----------
+    f15_file : str
+        Path to fort.15 file
+    ds : xr.Dataset, optional
+        Dataset to store the information. If None, create a new Dataset.
+    
+    Returns
+    -------
+    ds : xr.Dataset
+        Dataset containing the fort.15 information.
     """
     if not Path(f15_file).is_file():
         raise ValueError(f"fort.15 file at {f15_file} not found")
 
     if type(ds) != xr.Dataset:
-        ds = xr.Dataset()
+        raise ValueError(f"ds must be of type xr.Dataset")
+        if 'NETA' not in ds.attrs.keys():
+            raise ValueError(f"ds must contain NETA attribute")
 
     ds, ln = read_text_line(ds, "RUNDES", f15_file, ln=1)
     ds, ln = read_text_line(ds, "RUNID", f15_file, ln=ln)
@@ -1074,7 +1351,7 @@ def write_fort14(ds, f14_file):
     #    JE, NHY, NM(JE,1),NM(JE,2), NM(JE,3)
     # end k loop
     logger.info("Writing Element Map.")
-    ds[["JE", "NHEY", "NM_1", "NM_2", "NM_3"]].to_dataframe().to_csv(
+    ds[["JE", "NHY", "NM_1", "NM_2", "NM_3"]].to_dataframe().to_csv(
         f14_file, sep=" ", mode="a", header=False
     )
 
@@ -1392,11 +1669,15 @@ def write_fort15(ds, f15_file):
 
         # Note - fort.15 files configured for 3D runs not supported yet
         if ds.attrs["IM"] in [1, 2, 11, 21, 31]:
-            error("fort.15 files configured for 3D runs not supported yet.")
+            msg = "fort.15 files configured for 3D runs not supported yet."
+            logger.error()
+            raise NotImplementedError(msg)
         elif len(str(ds.attrs["IM"])) == 6:
             # 1 in 6th digit indicates 3D run
             if int(ds.attrs["IM"] / 100000.0) == 1:
-                error("fort.15 files configured for 3D runs not supported yet.")
+                msg = "fort.15 files configured for 3D runs not supported yet."
+                logger.error(msg)
+                raise NotImplementedError(msg)
 
         # Last 10 fields before control list is netcdf params
         nc_params = [
@@ -1609,7 +1890,7 @@ def modify_f15_attrs(
         ds = read_fort14(str(fort_path / "fort.14"))
         ds = read_fort15(str(fort_path / "fort.15"), ds=ds)
     else:
-        ds = open_dataset(nc_path)
+        ds = xr.open_dataset(nc_path)
 
     to_overwrite = list(kwargs.keys())
     avail = list(ds.attrs.keys())
@@ -1618,7 +1899,7 @@ def modify_f15_attrs(
         raise ValueError(f"Invalid configs to overwrite {wrong}")
 
     for attr in to_overwrite:
-        ds[attrs] = kwargs[attr]
+        ds[attr] = kwargs[attr]
 
     od_path = Path(output_dir)
     od_path.mkdir(exist_ok=overwrite)
@@ -1733,7 +2014,7 @@ def gen_uniform_beta_fort13(
     targ_path.mkdir(exist_ok=True)
 
     beta_vals = np.random.uniform(domain[0], domain[1], size=num_samples)
-    f13 = pyio.read_fort13(base_f13_path)
+    f13 = read_fort13(base_f13_path)
 
     files = []
     for idx, b in enumerate(beta_vals):
@@ -1743,7 +2024,7 @@ def gen_uniform_beta_fort13(
         job_dir = targ_path / job_name
         job_dir.mkdir(exist_ok=True)
         fpath = str(job_dir / "fort.13")
-        pyio.write_fort13(f13, fpath)
+        write_fort13(f13, fpath)
         files.append(fpath)
 
     return str(targ_path), files
@@ -1896,7 +2177,7 @@ def cfsv2_grib_to_adcirc_netcdf(
     data_dir : str, optional
       Directory where grib files are location. Defaults to current working
       directory.
-    output_name : str, optional
+    output_e : str, optional
       Name of output netcdf file to write. If none specified (default), then no
       output file will be written, just the read in xarray will be returned.
     bounding_box : List[float], optiontal
@@ -1915,7 +2196,7 @@ def cfsv2_grib_to_adcirc_netcdf(
 
     """
     # Open data-set
-    pdb.set_trace()
+    # pdb.set_trace()
     # TODO: Group by ds type and then loop through each type
     # Deal with different ds formats for each type.
     # format for filename is <field>.<type>.<date>.grb2
@@ -1924,13 +2205,15 @@ def cfsv2_grib_to_adcirc_netcdf(
     # as in 'prmsl.cdas1.201801.grb2' and 'prmsl.l.cdas1.201801.grb2'
     # .l. dataset is coarser data. pick it to start. if no data over grid user finer.
     # ad option to force using finer dataset.
-    data = xr.open_mfdataset(files, engine="cfgrib", lock=False)
+    # data = xr.open_mfdataset(files, engine="cfgrib", lock=False)
+    data = xr.open_mfdataset(files)
 
     # Filter according to passed in args
     if bounding_box is not None:
         long_range = np.array(bounding_box[0:2]) % 360
         data = data.sel(
-            latitude=slice(bounding_box[2], bounding_box[3]),
+            latitude=slice(bounding_box[2], bounding_box[3])
+        ).sel(
             longitude=slice(long_range[0], long_range[1]),
         )
     if date_range is not None:
@@ -1944,10 +2227,12 @@ def cfsv2_grib_to_adcirc_netcdf(
     drop = [x for x in list(data.coords.keys()) if x not in coords]
     for x in drop:
         data = data.drop(x)
+    data.load()
 
-    # Write only if necessary
-    if output_name is not None:
-        data.to_netcdf(output_name)
+    write_job = data.to_netcdf(output_name, compute=False)
+    with ProgressBar():
+        print(f"Writing to {output_name}:")
+        write_job.compute()
 
     return data
 
@@ -1987,7 +2272,6 @@ def add_cfsv2_met_forcing(
     )
     ds = ds.merge(met_data)
 
-    pdb.set_trace()
     if out_path is not None:
         ds.to_netcdf(out_path)
 

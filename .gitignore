@@ -58,4 +58,12 @@ MANIFEST
 
 # Ignore data and images in notebooks directory (workspace)
 notebooks/data/*
-notebooks/images/*
+notebooks/figures/*
+notebooks/.*
+notebooks/*.grb2
+notebooks/*.png
+notebooks/*.idx
+notebooks/.env
+
+# Test files
+tests/.env
