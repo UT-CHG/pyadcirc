@@ -59,6 +59,12 @@ def pyplot_mesh(
         "headaxislength": 4,
         "width": 0.003,
     },
+    quiver_key_args: dict = {
+        'X': 0.85, 'Y': 0.85, 'U': 10,
+        'label': '10 m/s',
+        'labelpos': 'N',
+        'fontproperties': {'size': 16},
+    },
     cmap: str = "viridis",
     colorbar_opts: dict = {
         "shrink": 0.8,
@@ -83,14 +89,16 @@ def pyplot_mesh(
     ax = plt.axes(projection=projection, facecolor="gray") if ax is None else ax
 
     # Select timestep we want to plot if specified
+    d = data[var]
     if time is not None:
-        d = data[var].sel({time_var: time}, method="nearest")
+        d = d.sel({time_var: time}, method="nearest")
         if vec_data is not None:
             vec_data = vec_data.sel({time_var: time}, method="nearest")
     else:
-        d = data[var].isel({time_var: timestep})
-        if vec_data is not None:
-            vec_data = vec_data.isel({time_var: timestep})
+        if 'time' in d.coords:
+            d = d.isel({time_var: timestep})
+            if vec_data is not None:
+                vec_data = vec_data.isel({time_var: timestep})
 
     if bounding_box is not None:
         d = d.sel(
@@ -123,13 +131,14 @@ def pyplot_mesh(
         p = d.plot(ax=ax, transform=data_coords, cbar_kwargs=colorbar_opts, cmap=cmap)
 
     # Plot vector data
+    quiv = None
     if vec_data is not None:
         num_lon = len(vec_data[vec_vars[0]])
         num_lat = len(vec_data[vec_vars[1]])
         long_idxs = np.arange(0, num_lon, int(num_lon / num_vecs) + 1)
         lat_idxs = np.arange(0, num_lat, int(num_lat / num_vecs) + 1)
 
-        vec_data.isel(longitude=long_idxs, latitude=lat_idxs).plot.quiver(
+        quiv = vec_data.isel(longitude=long_idxs, latitude=lat_idxs).plot.quiver(
             transform=vec_coords,
             x=vec_vars[0],
             y=vec_vars[1],
@@ -137,6 +146,7 @@ def pyplot_mesh(
             v=vec_vars[3],
             **vec_params,
         )
+        plt.quiverkey(quiv, **quiver_key_args)
 
     # Add desired features
     for f in features:
@@ -175,9 +185,41 @@ def pyplot_mesh(
     # Set colorbar properties. Note we get the colorbar from the dataset object
     p.colorbar.ax.tick_params(labelsize=12)
 
-    ts = pd.to_datetime(d["time"].item(0))
-    title = f"{var} at {ts}" if title is None else title
+    title = f"{var}" if title is None else title
+    if 'time' in d.coords:
+        title = f"{title} at {pd.to_datetime(d['time'].item(0))}"
     ax.set_title(title, **title_style)
 
     if save_path is not None:
-        plt.savefig(save_path)
+        plt.savefig(save_path, bbox_inches="tight")
+
+    return ax
+
+
+if __name__ == "__main__":
+    import pyadcirc.io.io as pyio
+    from cartopy import crs
+    import matplotlib.pyplot as plt
+
+    start_date = '1993-01-07 01:36:00'
+    end_date = '1993-01-13 18:18:00'
+    root_path = Path('/Users/carlos/repos/pyADCIRC/notebooks/')
+    wind_data = xr.open_dataset(str(root_path / 'data/fort.222.nc')) 
+    wind_data['speed'] = np.sqrt(wind_data['u10']**2 + wind_data['v10']**2)
+    wind_data['speed'].attrs['units'] = 'm/s'
+    plt.figure(figsize=(12, 8))
+    res = pyplot_mesh(
+        wind_data,
+        "speed",
+        projection=crs.Orthographic(-170, 45),
+        timestep=0,
+        features=[("coastlines", {"resolution": "10m", "color": "black"})],
+        vec_data=wind_data,
+        num_vecs=20,
+        save_path="test.png",
+        quiver_key_args={
+        'X': 0.87, 'Y': 0.75, 'U': 10,
+        'label': '10 m/s',
+        'labelpos': 'N',
+        'fontproperties': {'size': 16},
+        })

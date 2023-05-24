@@ -1,109 +1,224 @@
+"""_summary_
+
+    Tests for the pyadcirc.io module
+"""
 import pdb
+import debugpy
 from pathlib import Path
 import os
+import numpy as np
 import pytest
 
+import xarray as xr
 from pyadcirc.io import io as pyio
+from dotenv import load_dotenv
+from conftest import temp_file_stream
 
-__author__ = "Carlos del-Castillo-Negrete"
-__copyright__ = "Carlos del-Castillo-Negrete"
-__license__ = "MIT"
+# Use dotenv to load path to adcirc-testsuite repository
+load_dotenv()
+ADCIRC_TEST_SUITE_PATH = os.environ.get("ADCIRC_TEST_SUITE_PATH")
 
-ak_test_path = '/Users/carlos/repos/adcirc-testsuite/adcirc/adcirc_alaska_ice-2d/'
-
-@pytest.fixture
-def test_f14():
-    f15_path = str(Path(__file__).parents[1] / 'data/adcirc/inputs/SI-test/fort.14')
-    yield f15_path
-
-@pytest.fixture
-def test_f15():
-    f15_path = str(Path(__file__).parents[1] / 'data/adcirc/inputs/SI-test/fort.15')
-    yield f15_path
-
-@pytest.fixture
-def ak_f14():
-    f14_path = str(Path(__file__).parents[1] / 'data/adcirc/inputs/AK/fort.14')
-    yield f14_path
-
-@pytest.fixture
-def ak_f15():
-    f15_path = str(Path(__file__).parents[1] / 'data/adcirc/inputs/AK/fort.15')
-    yield f15_path
-
-@pytest.fixture
-def ak_f24():
-    f24_path = str(Path(__file__).parents[1] / 'data/adcirc/inputs/AK/fort.24')
-    yield f24_path
-
-@pytest.fixture
-def test_out_f24():
-    test_out_f24 = Path(__file__).parents[1] / 'data/adcirc/inputs/AK/out.fort.24'
-    yield test_out_f24
-    test_out_f24.unlink(missing_ok=True)
-
-@pytest.fixture
-def test_out_f15():
-    test_out_f15 = Path(__file__).parents[1] / 'data/adcirc/inputs/AK/out.fort.15'
-    yield test_out_f15
-    test_out_f15.unlink(missing_ok=True)
-
-@pytest.fixture
-def test_ncar_data():
-    test_ncar_path = Path(__file__).parents[1] / 'data/adcirc/ncar_data'
-    yield test_ncar_path
-    for p in test_ncar_path.iterdir():
-        if str(p).endswith('.idx'):
-            p.unlink()
-
-@pytest.fixture
-def test_adcirc_nc():
-    test_adcirc_path = Path(__file__).parents[1] / 'data/adcirc/inputs/test_adcirc_inputs.nc'
-    yield test_adcirc_path
-    test_adcirc_path.unlink(missing_ok=True)
-
-def test_modify_f15(test_f14, test_f15):
-    """Test Modifying an f15 file"""
-    ds = pyio.read_fort14(test_f14)
-    ds = pyio.read_fort15(test_f15, ds=ds)
-    pdb.set_trace()
+tests = {'si': 'adcirc_shinnecock_inlet',
+         'alaska': 'adcirc_alaska_ice-2d'}
 
 
-def test_f24(ak_f14, ak_f15, ak_f24, test_out_f24):
-    """Test Modifying an f15 file"""
-    ds = pyio.read_fort14(ak_f14)
-    ds = pyio.read_fort15(ak_f15, ds=ds)
-    ds = pyio.read_fort24(ak_f24, ds=ds)
+def _get_f14_path(test):
+    return os.path.join(
+        ADCIRC_TEST_SUITE_PATH, 'adcirc', tests[test], 'fort.14'
+)
 
-    pyio.write_fort24(ds, str(test_out_f24))
+def test_read_text_line():
+    """
+    Test the read_param_line function 
+    """
+    answers = {'si': 'Shinacock Inlet Coarse Grid', 'alaska': 'OceanMesh2D'}
 
-    ds2 = pyio.read_fort14(ak_f14)
-    ds2 = pyio.read_fort15(ak_f15, ds=ds)
-    ds2 = pyio.read_fort24(str(test_out_f24), ds=ds)
+    for test in tests:
+        params, ln = pyio.read_text_line({}, "AGRID", _get_f14_path(test), ln=1)
 
-    assert (ds['SALTAMP'] == ds2['SALTAMP']).all()
-    assert (ds['SALTPHA'] == ds2['SALTPHA']).all()
+        assert ln == 2
+        assert params['AGRID'] == answers[test]
 
-def test_wtiminc(test_out_f15):
-    """Test modifying WTIMINC. In particualr when pair value present"""
-    ds = pyio.read_fort14(str(Path(ak_test_path ) / 'fort.14'))
-    ds = pyio.read_fort15(str(Path(ak_test_path ) / 'fort.15'), ds)
 
-    pyio.write_fort15(ds, str(test_out_f15))
+def test_read_param_line():
+    """
+    Test the read_param_line function 
+    """
 
-    ds2 = pyio.read_fort14(str(Path(ak_test_path ) / 'fort.14'))
-    ds2 = pyio.read_fort15(str(test_out_f15), ds2)
-    pdb.set_trace()
+    answers = {'si': {'NE': 5780, 'NP': 3070}, 'alaska': {'NE': 27757, 'NP': 15876}}
+    for test in tests:
+        
+        params, ln = pyio.read_param_line(
+            {}, ["NE", "NP"],
+            _get_f14_path(test), ln=2, dtypes=2 * [int])
 
-def test_add_cfsv2(test_f14, test_f15, test_ncar_data, test_adcirc_nc):
-    """Test adding met forcing data (wind and pressure) to a dataset"""
-    ds = pyio.read_fort14(test_f14)
-    ds = pyio.read_fort15(test_f15, ds=ds)
+        assert ln == 3
+        assert params['NE'] == answers[test]['NE']
+        assert params['NP'] == answers[test]['NP'] 
 
-    files = list(test_ncar_data.iterdir())
-    ds = pyio.add_cfsv2_met_forcing(ds, files, str(test_ncar_data),
-                                    start_date='2018-01-01 00:00:00',
-                                    end_date='2018-01-05 00:00:00',
-                                    out_path=str(test_adcirc_nc))
-    pdb.set_trace()
 
+def test_write_param_line(temp_file_stream):
+    # Prepare test data
+    params = {'param1': 1.23, 'param2': 4.56}
+
+    # Call the function to write the parameter line
+    pyio.write_param_line(params, params.keys(), temp_file_stream)
+
+    # Read the written line from the file stream
+    temp_file_stream.seek(0)
+    written_line = temp_file_stream.readline().strip()
+
+    # Check if the written line matches the expected format
+    assert written_line.startswith('1.23 4.56')
+    assert len(written_line) >= 80
+
+    # Check if the parameter names are present
+    assert 'param1' in written_line
+    assert 'param2' in written_line
+
+
+def test_write_text_line(temp_file_stream):
+    # Prepare test data
+    ds = xr.Dataset()
+    ds.attrs['param'] = 'Test line'
+    param = 'param'
+
+    # Call the function to write the text line
+    pyio.write_text_line(ds, param, temp_file_stream)
+
+    # Reset the file stream position to the beginning for reading
+    temp_file_stream.seek(0)
+
+    # Read the written line from the file stream
+    written_line = temp_file_stream.readline().strip()
+
+    # Check if the written line matches the expected format
+    assert written_line.startswith('Test line')
+    assert len(written_line) >= 80
+
+    # Check if the parameter name is present
+    assert 'param' in written_line
+
+
+def test_read_fort14_params(temp_file_path):
+    """
+    Test the read_param_line function 
+    """
+    answers = {'si': {'AGRID': 'Shinacock Inlet Coarse Grid',
+                        'NE': 5780,
+                        'NP': 3070,
+                        'NOPE': 1,
+                        'NETA': 75,
+                        'NBOU': 1,
+                        'NVEL':285},
+                'alaska': {'AGRID': 'OceanMesh2D',
+                            'NE': 27757,
+                            'NP': 15876,
+                            'NOPE': 2,
+                            'NETA': 122,
+                            'NBOU': 68,
+                            'NVEL': 4070}}
+    for test in tests:
+        params = pyio.read_fort14_params(_get_f14_path(test))
+
+        assert params['AGRID'] == answers[test]['AGRID']
+        assert params['NE'] == answers[test]['NE']
+        assert params['NP'] == answers[test]['NP']
+        assert params['NOPE'] == answers[test]['NOPE']
+        assert params['NETA'] == answers[test]['NETA']
+        assert params['NBOU'] == answers[test]['NBOU']
+        assert params['NVEL'] == answers[test]['NVEL']
+
+
+def test_read_fort14_node_map(temp_file_path):
+    """
+    Test the read_param_line function 
+    """
+    answers = {'si': {'NP': 3070},
+                'alaska': {'NP': 15876}}
+
+    for test in tests:
+        node_map = pyio.read_fort14_node_map(_get_f14_path(test))
+
+        for key in ['JN', 'X', 'Y', 'DP']:
+            assert len(node_map[key]) == answers[test]['NP']
+        assert type(node_map['DP'].values[0]) == np.float64
+
+    
+def test_read_fort14_element_map(temp_file_path):
+    """
+    Test the read_param_line function 
+    """
+    ds = pyio.read_fort14_element_map(test_f14_file)
+
+    assert ds.attrs['AGRID'] == 'Shinacock Inlet Coarse Grid'
+    assert ds.attrs['NE'] == 5780
+    assert ds.attrs['NE'] == len(ds.NM_1)
+    assert ds.attrs['NE'] == len(ds.NM_2)
+    assert ds.attrs['NE'] == len(ds.NM_3)
+
+
+def test_read_fort14_elev_boundary(temp_file_path):
+    """
+    Test the read_param_line function 
+    """
+    ds = pyio.read_fort14_params(test_f14_file)
+    bounds = pyio.read_fort14_elev_boundary(test_f14_file)
+
+    assert len(bounds['segments']) == ds.attrs['NOPE']
+    assert len(bounds['nodes']) == ds.attrs['NETA']
+
+
+def test_read_fort14_flow_boundary(temp_file_path):
+    """
+    Test the read_param_line function 
+    """
+    ds = pyio.read_fort14_params(test_f14_file)
+    bounds = pyio.read_fort14_flow_boundary(test_f14_file)
+
+    assert len(bounds['segments']) == ds.attrs['NBOU']
+    assert len(bounds['nodes']) == ds.attrs['NVEL']
+    assert all(bounds['segments']['IBTYPE'].unique() == [0])
+
+
+def test_read_fort14(temp_file_path):
+    """
+    Test the read_param_line function 
+    """
+    ds = pyio.read_fort14(test_f14_file)
+
+    assert ds.attrs['AGRID'] == 'Shinacock Inlet Coarse Grid'
+    assert ds.attrs['NE'] == 5780
+    assert ds.attrs['NP'] == 3070
+
+
+def test_write_fort14(temp_file_path):
+    """
+    Test the read_param_line function 
+    """
+    ds = pyio.read_fort14(test_f14_file)
+    pyio.write_fort14(ds, temp_file_path)
+    ds2 = pyio.read_fort14(temp_file_path)
+
+    assert ds.attrs['AGRID'] == 'Shinacock Inlet Coarse Grid'
+    assert ds.attrs['NE'] == 5780
+    assert ds.attrs['NP'] == 3070
+
+    assert ds.attrs['AGRID'] == ds2.attrs['AGRID']
+    assert ds.attrs['NE'] == ds2.attrs['NE']
+    assert ds.attrs['NP'] == ds2.attrs['NP']
+
+
+def test_read_fort15(temp_file_path):
+    """
+    Test the read_param_line function 
+    """
+    ds = xr.Dataset()
+    ds.attrs['NETA'] = 75
+    ds = pyio.read_fort15(test_f15_file, ds)
+    pyio.write_fort15(ds, temp_file_path)
+    ds = pyio.read_fort15(test_f15_file, ds)
+
+    assert ds.attrs['AGRID'] == 'Shinacock Inlet Coarse Grid'
+    assert ds.attrs['NE'] == 5780
+    assert ds.attrs['NP'] == 3070
