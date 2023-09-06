@@ -1,3 +1,8 @@
+"""
+FigureGen Python Wrapper
+
+Utilities for 
+"""
 import os
 import linecache as lc
 import pdb
@@ -10,7 +15,7 @@ import colorcet as cc
 import matplotlib as mpl
 import numpy as np
 import pandas as pd
-from pyadcirc.io.io import read_fort14
+from pyadcirc.io.io import read_fort14_node_map
 from InquirerPy import inquirer
 from InquirerPy.base.control import Choice
 from InquirerPy.separator import Separator
@@ -18,6 +23,7 @@ from InquirerPy.validator import EmptyInputValidator, PathValidator
 from prettytable import PrettyTable
 from pyadcirc.viz.fg_config import FG_config
 from pyadcirc.viz.palettes import *
+
 
 # See if docker, tapis, or taccjm options are installed for use
 try:
@@ -81,6 +87,28 @@ def color_mixer(
     mix : array-like
         3 element list containg RGB colors of mixed color between `c1` and `c2`.
 
+    Examples
+    --------
+    # Example 1: mix=0 (result should be c1)
+    >>> c1 = (255, 0, 0)  # Red
+    >>> c2 = (0, 255, 0)  # Green
+    >>> mix = 0
+    >>> color_mix(c1, c2, mix) # Returns Red
+    (255, 0, 0)
+
+    # Example 2: mix=1 (result should be c2)
+    >>> c1 = (255, 0, 0)  # Red
+    >>> c2 = (0, 255, 0)  # Green
+    >>> mix = 1
+    >>> color_mix(c1, c2, mix) # Returns Green
+    (0, 255, 0)
+
+    # Example 3: mix=0.5 (result should be equal mix of c1 and c2)
+    >>> c1 = (255, 0, 0)  # Red
+    >>> c2 = (0, 255, 0)  # Green
+    >>> mix = 0.5
+    >>> color_mix(c1, c2, mix)  # Yellow (equal mix of red and green)
+    (127, 127, 0)
     """
     c1 = np.array(mpl.colors.to_rgb(np.array(c1) / 255.0))
     c2 = np.array(mpl.colors.to_rgb(np.array(c2) / 255.0))
@@ -116,7 +144,7 @@ def get_bbox(f14_file: str, scale_x: float = 0.1, scale_y: float = 0.1):
 
     """
 
-    f14 = read_fort14(f14_file)
+    f14 = read_fort14_node_map(f14_file)
 
     bounds = [
         [f14["X"].values.min(), f14["X"].values.max()],
@@ -241,8 +269,31 @@ def read_inp(input_file: str):
                     config["vectors"][FG_config[idx]["name"]] = val
                 else:
                     config[FG_config[idx]["name"]] = val
+    
+    if config['labels'][0] > 0:
+        # Labels file should be in the sampe dir as input_file
+        labels_file = Path(input_file).parent / config['labels'][1]
+        config['labels'] = read_labels(labels_file)
+    else:
+        config['labels'] = None
 
     return config
+
+def read_labels(label_path: str):
+    """
+    Read Labels file that has the format:
+    
+    label_name, lon, lat, position, size, color
+
+    Where position contains two characters, L, C or R for left, center or right
+    for the x position and T, M, By for top, middle, bottom for the y position.
+    First line of file should contain number of labels present in the file.
+    """
+    return pd.read_csv(
+        label_path, delimiter=',',
+        skiprows=1,
+        names=['name', 'lon', 'lat', 'position', 'size', 'color'])
+    
 
 
 def pal_from_cc(name: str):
@@ -519,6 +570,17 @@ def write_inp(config: dict, out_file: str, **kwargs: dict):
             elif val is None:
                 out_str = convert(spec["default"]).ljust(50, " ")
                 out_f.write(f"{out_str}! {name} : {desc}\n")
+            elif name == 'labels':
+                if config['labels'] is None:
+                    out_str = convert(spec.default).ljust(50, " ")
+                    out_f.write(f"{out_str}! {name} : {desc}\n") 
+                else:
+                    labels_file = Path(out_file).parent / 'Labels.txt'
+                    num_labels = len(config['labels'])
+                    # Write num_labels to first line of labels_file followed by table of values
+                    with open(labels_file, 'w') as lf:
+                        lf.write(f"{num_labels}\n")
+                        config['labels'].to_csv(labels_file, index=False)
             else:
                 out_str = convert(val).ljust(50, " ")
                 out_f.write(f"{out_str}! {name} : {desc}\n")
