@@ -17,3 +17,10 @@ def temp_file_path(request):
     yield file_path
     if os.path.exists(file_path):
         os.remove(file_path)
+
+@pytest.fixture
+def temp_dir(request):
+    dir_path = tempfile.mkdtemp()
+    yield dir_path
+    if os.path.exists(dir_path):
+        os.rmdir(dir_path)

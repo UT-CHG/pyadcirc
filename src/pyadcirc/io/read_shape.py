@@ -1,11 +1,17 @@
 import heapq
+import os
 import pdb
+import shutil
+import warnings
 import xml.etree.ElementTree as ET
+from glob import glob
+from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
 import folium
 import geopandas as gpd
 import matplotlib.pyplot as plt
+import netCDF4 as nc
 import networkx as nx
 import numpy as np
 import pandas as pd
@@ -15,25 +21,172 @@ from pyadcirc.io.io import read_fort14_element_map, read_fort14_node_map
 from rich.traceback import install
 from shapely.geometry import LineString, Point, Polygon
 from shapely.wkt import loads
-import networkx as nx
-from shapely.geometry import LineString, Point
 
 install(show_locals=True)
 
 
-def plot_shapes(
+def plot_folium_map(
+    gdf_or_path: Union[gpd.GeoDataFrame, str],
+    crs_epsg: int = 32616,
+    map_filename: str = "map.html",
+) -> None:
+    """
+    Plot the shapefile using Folium.
+
+    Parameters
+    ----------
+    gdf_or_path : Union[gpd.GeoDataFrame, str]
+        Either a GeoPandas DataFrame or a file path to load the DataFrame.
+    crs_epsg : int, optional
+        The EPSG code for the CRS transformation. Default is 32616 (UTM zone 16N).
+    map_filename : str, optional
+        The filename for the saved Folium map. Default is 'map.html'.
+    """
+    if isinstance(gdf_or_path, str):
+        gdf = gpd.read_file(gdf_or_path)
+    else:
+        gdf = gdf_or_path
+
+    # Project the data to the specified CRS for accurate centroid calculation
+    if gdf.crs is None:
+        gdf.crs = f"EPSG:{crs_epsg}"
+    else:
+        gdf = gdf.to_crs(epsg=crs_epsg)
+
+    # Calculate the center of the map
+    center = gdf.unary_union.centroid
+
+    # Convert centroid back to geographic coordinates
+    center_geographic = gpd.GeoSeries([center], crs=crs_epsg).to_crs(epsg=4326)
+    avg_latitude, avg_longitude = (
+        center_geographic.geometry[0].y,
+        center_geographic.geometry[0].x,
+    )
+
+    # Create a Map instance
+    m = folium.Map(
+        location=[avg_latitude, avg_longitude], zoom_start=12, control_scale=True
+    )
+
+    # Add the shapefile to the map
+    folium.GeoJson(gdf).add_to(m)
+
+    # Show or save the map
+    m.save(map_filename)
+
+
+def read_xml_metadata(path: str) -> dict:
+    """
+    Read XML metadata for the shapefile.
+
+    Parameters
+    ----------
+    path : str
+        Either a path to the XML metadata file or a directory containing it.
+
+    Returns
+    -------
+    metadata : dict
+        A dictionary containing the XML metadata.
+    """
+    # Initialize empty metadata dictionary
+    metadata = {}
+
+    # Check if the path is a directory
+    path = str(path)
+    if os.path.isdir(path):
+        # Search for .shp.xml files in the directory
+        xml_files = glob(os.path.join(path, "*.shp.xml"))
+
+        # Warning and selection if multiple .shp.xml files are found
+        if len(xml_files) > 1:
+            print(
+                f"Warning: Multiple .shp.xml files found. Using the first one: {xml_files[0]}"
+            )
+
+        if xml_files:
+            xml_file = xml_files[0]
+        else:
+            print("No .shp.xml file found in directory.")
+            return metadata
+    else:
+        # Modify the file path based on the extension
+        if path.endswith(".shp"):
+            xml_file = path.replace(".shp", ".shp.xml")
+        elif not path.endswith(".xml"):
+            xml_file = f"{path}.xml"
+        else:
+            xml_file = path
+
+    try:
+        # Parse the XML file
+        tree = ET.parse(xml_file)
+
+        # Get the root element
+        root = tree.getroot()
+
+        # Populate metadata
+        for elem in root.iter():
+            metadata[elem.tag] = elem.text
+    except FileNotFoundError:
+        print("Metadata file not found.")
+
+    return metadata
+
+
+def write_xml_metadata(attrs: dict, shapefile_path: str, output_dir: str) -> None:
+    """
+    Write XML metadata for a shapefile.
+
+    Parameters
+    ----------
+    attrs : dict
+        A dictionary containing the XML attributes.
+    shapefile_path : str
+        The path to the shapefile for which the metadata is being written.
+    output_dir : str
+        The directory where the XML file will be saved.
+
+    """
+    # Create the root XML element
+    root = ET.Element("root")
+
+    # Create child elements based on the attrs dictionary
+    for key, value in attrs.items():
+        elem = ET.SubElement(root, key)
+        elem.text = str(value)
+
+    # Create the ElementTree object
+    tree = ET.ElementTree(root)
+
+    # Create the output directory if it doesn't exist
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    # Create the output file path
+    shapefile_name = os.path.basename(shapefile_path)
+    xml_filename = shapefile_name.replace(".shp", ".shp.xml")
+    output_path = os.path.join(output_dir, xml_filename)
+
+    # Write the XML file
+    tree.write(output_path)
+
+    print(f"XML metadata written to {output_path}")
+
+
+def process_shapefiles(
+    path: str = None,
     gdf: Optional[gpd.GeoDataFrame] = None,
-    dir: str = "/Users/carlos/Downloads/Galveston_Ring_Barrier_System_Polyline",
     plot: Optional[bool] = True,
     plot_kwargs: Optional[dict] = None,
     plot_filename: Optional[str] = None,
-    map_filename: Optional[str] = "map.html",
-    metadata: Optional[bool] = False,
-    crs_epsg: Optional[int] = 32616,
+    map_filename: Optional[str] = None,
+    metadata: Optional[bool] = True,
+    crs_epsg: Optional[int] = 4326,
 ) -> gpd.GeoDataFrame:
     """
-    Given a path to a .shp file and supporting files, perform various operations
-    including reading, plotting, and extracting metadata.
+    Given a path to a .shp file and supporting files, perform various
+    operations including reading, plotting, and extracting metadata.
 
     Parameters
     ----------
@@ -61,61 +214,25 @@ def plot_shapes(
     """
     # Load shapefile
     if gdf is None:
-        gdf = gpd.read_file(dir)
+        path = str(Path.cwd()) if path is None else path
+        gdf = gpd.read_file(str(path))
+
+        if metadata:
+            gdf.attrs = read_xml_metadata(path)
 
     # Ensure the original GeoDataFrame has a geographic (latitude/longitude) CRS
-    gdf = gdf.to_crs(epsg=4326)
+    gdf = gdf.to_crs(epsg=crs_epsg)
 
     # Plot with GeoPandas
     if plot:
         plot_kwargs = {} if plot_kwargs is None else plot_kwargs
         gdf.plot(**plot_kwargs)
-        plt.show()
+        # plt.show()
         if plot_filename is not None:
             plt.savefig(plot_filename)
 
-    # Plot with Folium
-    if map:
-        # Project the data to the specified CRS for accurate centroid calculation
-        gdf_projected = gdf.to_crs(epsg=crs_epsg)
-
-        # Calculate the center of the map
-        center = gdf_projected.unary_union.centroid
-
-        # Convert centroid back to geographic coordinates
-        center_geographic = gpd.GeoSeries([center], crs=crs_epsg).to_crs(epsg=4326)
-        avg_latitude, avg_longitude = (
-            center_geographic.geometry[0].y,
-            center_geographic.geometry[0].x,
-        )
-
-        # Create a Map instance
-        m = folium.Map(
-            location=[avg_latitude, avg_longitude], zoom_start=12, control_scale=True
-        )
-
-        # Add the shapefile to the map
-        folium.GeoJson(gdf).add_to(m)
-
-        # Show or save the map
-        m.save(map_filename)
-
-    # Read XML metadata
-    if metadata:
-        xml_file = dir.replace(".shp", ".shp.xml")
-        try:
-            # Parse the XML file
-            tree = ET.parse(xml_file)
-
-            # Get the root element
-            root = tree.getroot()
-
-            # Print all elements in the XML
-            metadata = {}
-            for elem in root.iter():
-                metadata[elem.tag] = elem.text
-        except FileNotFoundError:
-            print("Metadata file not found.")
+    if map_filename is not None:
+        plot_folium_map(gdf, crs_epsg, map_filename)
 
     return gdf
 
@@ -741,7 +858,6 @@ def build_graph(element_map):
 def dijkstra_shortest_path(
     nodes, G: GeoDataFrame, point1: Tuple[float, float], point2: Tuple[float, float]
 ) -> GeoDataFrame:
-
     # Find the nearest nodes to the given points
     start_node = min(nodes, key=lambda node: Point(nodes[node]).distance(Point(point1)))
     end_node = min(nodes, key=lambda node: Point(nodes[node]).distance(Point(point2)))
@@ -815,7 +931,7 @@ def approximate_shapefile_boundary(
         true_paths = []
         scores = []
         for start, end in zip(coords[:-1], coords[1:]):
-            bar.text(f'Going from {start} to {end}')
+            bar.text(f"Going from {start} to {end}")
             # Approximate the line segment using the selected search algorithm
             if algorithm == "greedy":
                 approx_path = greedy_shortest_path(element_map, start, end)
@@ -836,7 +952,7 @@ def approximate_shapefile_boundary(
                 approx_paths.append(approx_path)
                 true_paths.append(LineString([start, end]))
             else:
-                print(f'No path found from {start} to {end}')
+                print(f"No path found from {start} to {end}")
 
             # Update the progress bar with the current score
             bar.text(f"Current Score: {total_score:.2f}")
@@ -889,103 +1005,318 @@ def load_element_gdf(filepath: str) -> gpd.GeoDataFrame:
     element_gdf["geometry"] = element_gdf["geometry"].apply(lambda x: loads(x))
     element_gdf["centroid"] = element_gdf["centroid"].apply(lambda x: loads(x))
 
-    # Convert to GeoDataFrame
+    # Convert to GeoDa4taFrame
     element_gdf = gpd.GeoDataFrame(element_gdf, geometry="geometry")
 
     return element_gdf
 
 
-# Main script execution entrypoint
-if __name__ == "__main__":
-    ring_barrier_path = "/Users/carlos/Downloads/Galveston_Ring_Barrier_System_Polyline"
-    f14 = "/Users/carlos/Documents/UT Austin/Research/Data/adcirc_data/grids/si/fort.14"
-    f14_large = "/Users/carlos/repos/pyDCI/fort.14"
+def split_linestring_by_height(df: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """
+    Splits LineString Z objects in a GeoDataFrame into separate LineStrings
+    based on unique Z-values (heights).
 
-    boundary = gpd.read_file(ring_barrier_path).to_crs(epsg=4326)
-    bbox = create_bbox_polygon(shape_path=ring_barrier_path)
-    # element_gdf = trim_f14_grid(f14_path=f14_large, bounding_box=bbox, within_box=False, neighbors=2)
-    # element_gdf = trim_f14_grid(f14_path=f14_large, bounding_box=bbox, within_box=False, neighbors=2)
+    Parameters
+    ----------
+    df : gpd.GeoDataFrame
+        The input GeoDataFrame containing LineString Z objects in the
+        'geometry' column.
+
+    Returns
+    -------
+    gpd.GeoDataFrame
+        A new GeoDataFrame containing separate LineStrings for each unique
+        height (Z-value), with the heights stored in a separate 'height' column.
+
+    """
+    # Create an empty dataframe to store the results
+    result = []
+    orig_crs = df.crs
+
+    for _, row in df.iterrows():
+        geometry = row["geometry"]
+        # Extract (X, Y, Z) values
+        coords = list(geometry.coords)
+
+        # Group coordinates by unique Z values
+        groups = {}
+        for x, y, z in coords:
+            if z not in groups:
+                groups[z] = []
+            groups[z].append((x, y))
+
+        # For each unique Z value, create a LINESTRING and store in result
+        for z, xy_coords in groups.items():
+            linestring = LineString(xy_coords)
+            result.append({"geometry": linestring, "height": z})
+
+    result = gpd.GeoDataFrame(result, columns=["geometry", "height"])
+    result.crs = orig_crs
+
+    return result
 
 
-    element_gdf = load_element_gdf("ring_barrier_cutout.csv")
-    nodes, Graph = build_graph(element_gdf)
-    true, approx, score = approximate_shapefile_boundary(
-        ring_barrier_path, G, n, algorithm="dijkstra"
+def remove_segment(
+    orig: gpd.GeoDataFrame, to_remove: gpd.GeoDataFrame
+) -> gpd.GeoDataFrame:
+    """
+    Removes a segment defined in `to_remove` from the original
+    linestring(s) in `orig`.
+
+    Parameters
+    ----------
+    orig : gpd.GeoDataFrame
+        The original GeoDataFrame containing linestrings.
+
+    to_remove : gpd.GeoDataFrame
+        The GeoDataFrame containing the segment(s) to be removed.
+
+    Returns
+    -------
+    gpd.GeoDataFrame
+        The modified GeoDataFrame with the segment removed.
+    """
+    # Determine start and end points from `to_remove`
+    start_point = np.array(to_remove.iloc[0]["geometry"].coords[0])
+    end_point = np.array(to_remove.iloc[-1]["geometry"].coords[-1])
+
+    # Initialize empty list to store new rows
+    new_rows = []
+
+    # Iterate through each row in `orig` to find closest points
+    for _, row in orig.iterrows():
+        geometry = row["geometry"]
+        coords = np.array(geometry.coords)
+
+        # Calculate distances to start_point and end_point
+        dist_to_start = np.sum((coords - start_point) ** 2, axis=1)
+        dist_to_end = np.sum((coords - end_point) ** 2, axis=1)
+
+        # Find closest points
+        closest_start = np.argmin(dist_to_start)
+        closest_end = np.argmin(dist_to_end)
+
+        # Handle special case where both `orig` and `to_remove` have single rows
+        if len(orig) == 1 and len(to_remove) == 1:
+            if closest_start < closest_end:
+                part1 = LineString(coords[: closest_start + 1])
+                part2 = LineString(coords[closest_end:])
+            else:
+                part1 = LineString(coords[: closest_end + 1])
+                part2 = LineString(coords[closest_start:])
+
+            new_rows.append({"geometry": part1})
+            new_rows.append({"geometry": part2})
+            continue
+
+        # Cut segments for general case
+        if closest_start < closest_end:
+            new_coords = np.concatenate(
+                [coords[:closest_start], coords[closest_end + 1 :]]
+            )
+        else:
+            new_coords = coords[closest_end + 1 : closest_start]
+
+        if new_coords.shape[0] > 1:
+            new_linestring = LineString(new_coords)
+            new_row = {"geometry": new_linestring}
+            new_rows.append(new_row)
+
+    # Create new GeoDataFrame
+    new_df = gpd.GeoDataFrame(new_rows)
+
+    return new_df
+
+
+def create_nc_file(
+    element_gdf_or_path: Union[gpd.GeoDataFrame, str],
+    output_path: str,
+    base_crs: int = 4326,
+    target_crs: int = 4326,
+) -> None:
+    """
+    Create a NetCDF file from a given GeoPandas DataFrame or a file path.
+
+    Parameters
+    ----------
+    element_gdf_or_path : Union[gpd.GeoDataFrame, str]
+        Either a GeoPandas DataFrame or a file path to load the DataFrame.
+    output_path : str
+        The path where the .nc file will be saved.
+    base_crs : int, optional
+        The base Coordinate Reference System to set if not already set.
+    target_crs : int, optional
+        The target Coordinate Reference System to transform to.
+
+    Returns
+    -------
+    None
+    """
+
+    # Load the GeoPandas DataFrame if a file path is given
+    if isinstance(element_gdf_or_path, str):
+        element_gdf = gpd.read_file(element_gdf_or_path)
+    else:
+        element_gdf = element_gdf_or_path
+
+    # Set the base CRS if not already set or if base_crs is explicitly provided
+    if element_gdf.crs is None or base_crs:
+        element_gdf.crs = f"EPSG:{base_crs}"
+
+    # Transform to the target CRS if provided
+    if target_crs:
+        element_gdf = element_gdf.to_crs(f"EPSG:{target_crs}")
+
+    # 1. Extract nodes from the element_gdf
+    nodes = []
+    node_indices = {}  # Dictionary to keep track of nodes and avoid duplicates
+    count = 0
+    for idx, row in element_gdf.iterrows():
+        for i in [1, 2, 3]:
+            x, y = row[f"X_{i}"], row[f"Y_{i}"]
+            if (x, y) not in node_indices:
+                nodes.append((x, y))
+                node_indices[(x, y)] = count
+                count += 1
+
+    nodes = np.array(nodes)
+
+    # 2. Define faces (triangles in this case)
+    faces = []
+    for idx, row in element_gdf.iterrows():
+        face = [node_indices[(row[f"X_{i}"], row[f"Y_{i}"])] for i in [1, 2, 3]]
+        faces.append(face)
+
+    faces = np.array(faces)
+
+    # 3. Assign data values to nodes
+    node_data = np.empty(len(nodes))
+    for idx, row in element_gdf.iterrows():
+        for i in [1, 2, 3]:
+            node_idx = node_indices[(row[f"X_{i}"], row[f"Y_{i}"])]
+            node_data[node_idx] = row[f"DP_{i}"]
+
+    node_data = np.array(node_data)
+
+    # 4. Assign data values to faces
+    face_data = element_gdf["DP"].to_numpy()
+
+    # Save the NetCDF file to the specified output path
+    rootgrp = nc.Dataset(output_path, "w", format="NETCDF4")
+
+    # 1. Define dimensions
+    nNodes_dim = rootgrp.createDimension("nMesh2_node", len(nodes))
+    nFaces_dim = rootgrp.createDimension("nMesh2_face", len(faces))
+    Two_dim = rootgrp.createDimension("Two", 2)
+    Three_dim = rootgrp.createDimension("Three", 3)
+
+    # 2. Mesh topology variable
+    Mesh2 = rootgrp.createVariable("Mesh2", "i4")
+    Mesh2.cf_role = "mesh_topology"
+    Mesh2.topology_dimension = 2
+    Mesh2.node_coordinates = "Mesh2_node_x Mesh2_node_y"
+    Mesh2.face_node_connectivity = "Mesh2_face_nodes"
+    # Add other attributes as needed, e.g., edge_node_connectivity, face_coordinates, etc.
+
+    # 3. Node coordinates
+    Mesh2_node_x = rootgrp.createVariable("Mesh2_node_x", "f4", "nMesh2_node")
+    Mesh2_node_x.standard_name = "longitude"
+    Mesh2_node_x.long_name = "Longitude of 2D mesh nodes."
+    Mesh2_node_x.units = "degrees_east"
+    Mesh2_node_x[:] = nodes[
+        :, 0
+    ]  # Assuming nodes is a Nx2 array with [longitude, latitude]
+
+    Mesh2_node_y = rootgrp.createVariable("Mesh2_node_y", "f4", "nMesh2_node")
+    Mesh2_node_y.standard_name = "latitude"
+    Mesh2_node_y.long_name = "Latitude of 2D mesh nodes."
+    Mesh2_node_y.units = "degrees_north"
+    Mesh2_node_y[:] = nodes[:, 1]
+
+    # 4. Face-to-node connectivity
+    Mesh2_face_nodes = rootgrp.createVariable(
+        "Mesh2_face_nodes", "i4", ("nMesh2_face", "Three")
     )
-    # try:
-    # except Exception as e:
-    #     print(e)
-    # pdb.set_trace()
+    Mesh2_face_nodes.cf_role = "face_node_connectivity"
+    Mesh2_face_nodes.long_name = "Maps every triangular face to its three corner nodes."
+    Mesh2_face_nodes.start_index = 0  # Using 0-based indexing
+    Mesh2_face_nodes[:] = faces  # Assuming faces is an Mx3 array with node indices
 
-    fig, ax = plt.subplots(1, 1)
-    element_gdf.plot(column="DP", cmap="Blues", legend=True, ax=ax)
-    bbox.boundary.plot(ax=ax)
-    plot_shapes(gdf=boundary, plot=True, plot_kwargs=dict(ax=ax))
-    plt.show()
+    # Create a variable for node_data
+    node_data_var = rootgrp.createVariable("node_data_var", "f4", "nMesh2_node")
+    node_data_var.long_name = "Data values at each node"
+    node_data_var.units = "Your_units_here"  # Replace with appropriate units, e.g., "meters", "degrees", etc.
+    node_data_var.mesh = "Mesh2"  # Associating with the mesh topology
+    node_data_var[:] = node_data
 
-    dissolved = pd.concat([a.dissolve() for a in approx])
-    true_gdf = gpd.GeoDataFrame(geometry=true)
-    boundary = boundary.to_crs(epsg=4326)
-    fig, ax = plt.subplots(1, 1)
-    ax = element_gdf.plot(column="DP", cmap="Blues", legend=True, ax=ax)
-    ax = dissolved[13:16].plot(ax=ax)
-    ax = true_gdf[13:15].plot(ax=ax, color='green')
-    plt.show()
+    # Create a variable for face_data
+    face_data_var = rootgrp.createVariable("face_data_var", "f4", "nMesh2_face")
+    face_data_var.long_name = "Data values at each face"
+    face_data_var.units = "Your_units_here"  # Replace with appropriate units, e.g., "meters", "degrees", etc.
+    face_data_var.mesh = "Mesh2"  # Associating with the mesh topology
+    face_data_var[:] = face_data
 
-    pdb.set_trace()
-
-    # bbx = create_bbox_polygon(dir=ring_barrier_path)
-    # bbox = create_bbox_polygon([[-72.4874359638,40.854701761],[-72.4689653685,40.8640148532]])
-    # bbox = create_bbox_polygon(bounding_box=[[-72.4874359638,40.854701761],[-72.4689653685,40.8640148532]])
-    # node_map = read_fort14_node_map(f14)
-    # element_map = read_fort14_element_map(f14)
-    # plot_elements_with_node(node_map, element_map, 4, neighbors=3)
-    # pdb.set_trace()
-    # plot_mesh(node_map, element_map)
-
-    # node_map, element_map = trim_f14_grid(f14_path=f14, bounding_box=bbox)
-    # plot_elements_with_node(node_map, element_map, 1)
-    # pdb.set_trace()
-    # # node_map, element_map = trim_f14_grid(f14_path=f14, center=(-72.05, 40.99), size=0.05)
-    # # node_map, element_map = trim_f14_grid(f14_path=f14_2, shape_path=ring_barrier_path)
-    # plot_mesh(node_map, element_map)
-
-# TODO:
-# 1. Plot cut-out grid and shapefile on top of one another.
-# 2. attempt "snapping" algorithm.
+    # Close the NetCDF file
+    rootgrp.close()
 
 
+def save_geodataframe_with_metadata(
+    gdf: gpd.GeoDataFrame, name: str, attrs: dict = None, directory: str = "."
+) -> None:
+    """
+    Save a GeoDataFrame along with its metadata.
 
-# line_strings = approx_boundary['geometry'].tolist()
-# coords = [coord for line in line_strings for coord in line.coords[:-1]] + [line_strings[-1].coords[-1]]
-# collapsed_line = LineString(coords)
-# gdf_collapsed = gpd.GeoDataFrame(geometry=[collapsed_line])
-# 
-# # test = gpd.GeoDataFrame(geometry=approx[155:-1])
-# test = gpd.GeoDataFrame(geometry=approx[:175])
-# boundary = boundary.to_crs(epsg=4326)
-# ax = approx_boundary.plot()
-# ax = boundary.plot(ax=ax, color='green')
-# test.plot(ax=ax, color='red')
-# plt.show()
-# 
+    Parameters
+    ----------
+    gdf : gpd.GeoDataFrame
+        The GeoDataFrame to save.
+    name : str
+        The name to give to the saved shapefile and metadata.
+    attrs : dict
+        A dictionary containing the metadata attributes.
+    directory : str, optional
+        The directory where to save the files. Defaults to the current working directory.
 
+    Example
+    -------
+    >>> attrs = {
+        "Author": "John Doe",
+        "Description": "This is a sample shapefile.",
+        "Version": "1.0"
+    }
+    >>> gdf = gpd.GeoDataFrame({
+        'geometry': [gpd.points_from_xy([1, 2, 3], [4, 5, 6])],
+        'attribute': ['A', 'B', 'C']
+    })
+    >>> save_geodataframe_with_metadata(gdf, "my_shapefile", attrs, "/path/to/directory")
+    """
+    # Create full path
+    full_path = os.path.join(directory, name)
 
-# idx = 10
-# test = gpd.GeoDataFrame(geometry=approx[idx])
-# test.plot()
-# plt.show()
-# 
-# # line_strings = approx_boundary['geometry'].tolist()
-# # coords = [coord for line in line_strings for coord in line.coords[:-1]] + [line_strings[-1].coords[-1]]
-# # collapsed_line = LineString(coords)
-# # gdf_collapsed = gpd.GeoDataFrame(geometry=[collapsed_line])
-# # 
-# dissolved = pd.concat([a.dissolve() for a in approx])
-# true_gdf = gpd.GeoDataFrame(geometry=true)
-# boundary = boundary.to_crs(epsg=4326)
-# fig, ax = plt.subplots(1, 1)
-# ax = element_gdf.plot(column="DP", cmap="Blues", legend=True, ax=ax)
-# ax = dissolved[13:16].plot(ax=ax)
-# ax = true_gdf[13:15].plot(ax=ax, color='green')
-# plt.show()
+    # Check if directory exists
+    if os.path.exists(full_path):
+        print(f"Warning: Directory {full_path} already exists.")
+        print("Contents:", os.listdir(full_path))
+        user_input = input("Do you want to remove these files and overwrite? (Y/N): ")
+
+        if user_input.lower() == "y":
+            # Remove existing directory and its contents
+            shutil.rmtree(full_path)
+        else:
+            print("Operation cancelled.")
+            return
+
+    # Create directory
+    os.makedirs(full_path)
+
+    # Save GeoDataFrame as a shapefile
+    shapefile_path = os.path.join(full_path, f"{name}.shp")
+    gdf.to_file(shapefile_path)
+
+    # Write XML metadata
+    meta_dict = gdf.attrs
+    meta_dict.update(attrs if attrs is not None else {})
+    write_xml_metadata(meta_dict, shapefile_path, full_path)
+
+    print(f"GeoDataFrame and metadata saved in {full_path}")
+
