@@ -396,7 +396,7 @@ FG_config = [
         "name": "labels",
         "desc": "Labels flag: 0 to ignore, 1 to plot labels from external file.",
         "type": (int, str),
-        "default": (0, "labels.txt"),
+        "default": (0, "Labels.txt"),
     },
     {
         "index": 54,

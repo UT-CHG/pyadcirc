@@ -512,6 +512,16 @@ class ADCIRCSimulation(object):
         self.f14 = dir_path / f14_path
         self.f15 = dir_path / f15_path
         self.grid = ADCIRCGrid(self.f14)
+        self.control_params = {}
+    
+    def _get_param(self, param_name, line, type='text'):
+        """
+        """
+        if param_name not in self.control_params:
+            self.control_params[param_name] = read_text_line(
+                self.control_params, param_name, self.f15, ln=line)
+        return self.control_params[param_name]
+
 
     @property
     def f14(self):
@@ -522,6 +532,86 @@ class ADCIRCSimulation(object):
         if not Path(f14_path).exists():
             raise FileNotFoundError(f"ADCIRC fort.14 (Grid and Boundary conditions) file at {str(f14_path)} not found")
         self.f14 = f14_path
+
+    @property
+    def f15(self):
+        return self.source_files['15']
+
+    @f14.setter
+    def f15(self, f15_path):
+        if not Path(f15_path).exists():
+            raise FileNotFoundError(f"ADCIRC fort.14 (Model Parameter and Periodic Boundary Conditions) file at {str(f15_path)} not found")
+        self.f15 = f15_path
+
+    @property
+    def RUNDES(self):
+        """
+        Run Description 
+
+        Alpha-numeric string of up to 80 characters describing the run. 
+        """
+        return self._get_param('RUNDES', 1)
+
+    @RUNDES.setter
+    def RUNDES(self, value):
+        """
+        Set Run Description
+        
+        Ensures run description is < 80 characters before setting.
+        """
+        if not isinstance(value, str):
+            raise TypeError(f"RUNDES must be of type str")
+        if len(value) >= 80:
+            raise ValueError(f"RUNDES must be 80 characters or less")
+        self.control_params['RUNDES'] = value
+    
+    @property
+    def RUNID(self):
+        """
+        Run ID
+
+        Alpha-numeric string of up to 8 characters identifying the run.
+        """
+        return self._get_param('RUNID', 2)
+    
+    @RUNID.setter
+    def RUNID(self, value):
+        """
+        Set Run ID
+        
+        Ensures run ID is < 80 characters before setting.
+
+        TODO: Enfore ID requirement?
+        """
+        if not isinstance(value, str):
+            raise TypeError(f"RUNID must be of type str")
+        if len(value) >= 80:
+            raise ValueError(f"RUNID must be 80 characters or less")
+        self.control_params['RUNID'] = value
+
+    @property
+    def ICS(self):
+        """
+        Coordinate System Paremeter. 1 for Carteisan, 2 for Spherical.
+
+        Specifies the initial conditions for the run. 
+        """
+        return self._get_param('ICS', 8)
+    
+    @ICS.setter
+    def ICS(self, value):
+        """
+        Set ICS
+        
+        Ensures ICS is 1 or 2 before setting.
+        """
+        if not isinstance(value, int):
+            raise TypeError(f"ICS must be of type int")
+        if value not in [1, 2]:
+            raise ValueError(f"ICS must be 1 (Cartesian) or 2 (Spherical)")
+        # TODO: Does the value here have to match the fort.14 grid?
+        self.control_params['ICS'] = value
+
 
 
 def read_fort15(f15_file, ds):
