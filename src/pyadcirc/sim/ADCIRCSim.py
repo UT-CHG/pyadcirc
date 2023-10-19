@@ -2,100 +2,13 @@
 # import h5py
 import time
 
+from pathlib import Path
 import numpy as np
 from taccjm.log import logger
 from taccjm.sim.TACCSimulation import TACCSimulation
 
 
-class BaseADCIRCSimulation(TACCSimulation):
-    JOB_DEFAULTS = {
-        "allocation": None,
-        "node_count": 1,
-        "processors_per_node": 12,
-        "max_run_time": 0.1,
-        "queue": "development",
-        "dependencies": [],
-    }
-
-    # These are file/folder inputs needed to run the simulation
-    ARGUMENTS = [
-        {
-            "name": "input_dir",
-            "type": "argument",
-            "label": "N",
-            "desc": "Path on compute system where input files are located.",
-            "default": "/work/06307/clos21/pub/adcirc/inputs/ShinnecockInlet/mesh/def",
-        },
-        {
-            "name": "exec_dir",
-            "type": "argument",
-            "label": "Channels",
-            "desc": "Number of channels to use to write the array.",
-            "default": "/work/06307/clos21/pub/adcirc/execs/ls6/v56_beta/",
-        },
-        {
-            "name": "wp",
-            "type": "argument",
-            "label": "Channels",
-            "desc": "Number of channels to use to write the array.",
-            "defaultf": 0,
-        },
-    ]
-
-    # TODO: Base environment config? for TACC simulation
-    BASE_ENV_CONFIG = {
-        "modules": ["remora"],
-        "conda_packages": "pip",
-        "pip_packages": "git+https://github.com/cdelcastillo21/taccjm.git@0.0.5-improv",
-    }
-
-    ENV_CONFIG = {
-        "conda_env": "pyadcirc",
-        "modules": ["netcdf"],
-        "conda_packages": ["mpi4p", "h5py", "cfgrib"],
-        "pip_packages": ["pyadcirc"],
-    }
-
-    def run_job(self):
-        """
-        Job run entrypoint
-
-        This is a skeleton method that should be over-written.
-
-        Note: ibrun command should be here somewhere.
-        """
-        n = self.job_config["args"]["n"]
-        channels = self.job_config["args"]["channels"]
-        logger.info("Starting Simulation")
-
-        # Use the client.exec function to execute commands.
-        self.client.exec(f"tail -n {param} {input_file} > out.txt; sleep 10")
-
-        logger.info("Simulation Done")
-
-        # num_processes = MPI.COMM_WORLD.size
-        # rank = MPI.COMM_WORLD.rank
-
-        # if rank == 0:
-        #     start = time.time()
-
-        # np.random.seed(746574366 + rank)
-
-        # f = h5py.File('parallel_test.hdf5', 'w', driver='mpio', comm=MPI.COMM_WORLD)
-        # dset = f.create_dataset('test', (channels, n), dtype='f')
-
-        # for i in range(channels):
-        #     if i % num_processes == rank:
-        #         data = np.random.uniform(size=n)
-        #         dset[i] = data
-
-        # f.close()
-
-        # if rank == 0:
-        #     print('Wallclock Time (s) Elapsed: ' + time.time()-start)
-
-
-class ADCIRCSimulation(object):
+class LocalADCIRCSimulation(object):
     """
     ADCIRC Simulation Class
 
@@ -192,9 +105,9 @@ class ADCIRCSimulation(object):
         TODO: Enfore ID requirement?
         """
         if not isinstance(value, str):
-            raise TypeError(f"RUNID must be of type str")
+            raise TypeError("RUNID must be of type str")
         if len(value) >= 80:
-            raise ValueError(f"RUNID must be 80 characters or less")
+            raise ValueError("RUNID must be 80 characters or less")
         self.control_params["RUNID"] = value
 
     @property
@@ -214,56 +127,98 @@ class ADCIRCSimulation(object):
         Ensures ICS is 1 or 2 before setting.
         """
         if not isinstance(value, int):
-            raise TypeError(f"ICS must be of type int")
+            raise TypeError("ICS must be of type int")
         if value not in [1, 2]:
-            raise ValueError(f"ICS must be 1 (Cartesian) or 2 (Spherical)")
+            raise ValueError("ICS must be 1 (Cartesian) or 2 (Spherical)")
         # TODO: Does the value here have to match the fort.14 grid?
         self.control_params["ICS"] = value
 
-        def run_job(self):
-            """
-            Job run entrypoint
 
-            This is a skeleton method that should be over-written.
+class BaseADCIRCSimulation(TACCSimulation):
+    """
+    Base ADCIRC Simulation Class
 
-            Note: ibrun command should be here somewhere.
-            """
-            n = self.job_config["args"]["n"]
-            channels = self.job_config["args"]["channels"]
-            logger.info("Starting Simulation")
+    For running a singular ADCIRC Simulation on TACC systems.
+    """
+    JOB_DEFAULTS = {
+        "allocation": None,
+        "node_count": 1,
+        "processors_per_node": 12,
+        "max_run_time": 0.1,
+        "queue": "development",
+        "dependencies": [],
+    }
 
-            # Use the client.exec function to execute commands.
-            self.client.exec(f"tail -n {param} {input_file} > out.txt; sleep 10")
+    # These are file/folder inputs needed to run the simulation
+    ARGUMENTS = [
+        {
+            "name": "input_dir",
+            "type": "argument",
+            "label": "N",
+            "desc": "Path on compute system where input files are located.",
+            "default": "/work/06307/clos21/pub/adcirc/inputs/ShinnecockInlet/mesh/def",
+        },
+        {
+            "name": "exec_dir",
+            "type": "argument",
+            "label": "Channels",
+            "desc": "Number of channels to use to write the array.",
+            "default": "/work/06307/clos21/pub/adcirc/execs/ls6/v56_beta/",
+        },
+        {
+            "name": "wp",
+            "type": "argument",
+            "label": "Channels",
+            "desc": "Number of write processes to use.",
+            "defaultf": 0,
+        },
+    ]
 
-            logger.info("Simulation Done")
+    # TODO: Base environment config? for TACC simulation
+    BASE_ENV_CONFIG = {
+        "modules": ["remora"],
+        "conda_packages": "pip",
+        "pip_packages": "git+https://github.com/cdelcastillo21/taccjm.git@0.0.5-improv",
+    }
 
-            # num_processes = MPI.COMM_WORLD.size
-            # rank = MPI.COMM_WORLD.rank
+    ENV_CONFIG = {
+        "conda_env": "pyadcirc",
+        "modules": ["netcdf"],
+        "conda_packages": ["mpi4p", "h5py", "cfgrib"],
+        "pip_packages": ["pyadcirc"],
+    }
 
-            # if rank == 0:
-            #     start = time.time()
-
-            # np.random.seed(746574366 + rank)
-
-            # f = h5py.File('parallel_test.hdf5', 'w', driver='mpio', comm=MPI.COMM_WORLD)
-            # dset = f.create_dataset('test', (channels, n), dtype='f')
-
-            # for i in range(channels):
-            #     if i % num_processes == rank:
-            #         data = np.random.uniform(size=n)
-            #         dset[i] = data
-
-            # f.close()
-
-            # if rank == 0:
-            #     print('Wallclock Time (s) Elapsed: ' + time.time()-start)
-
-            import logging
-
-    def run_simulation(
+    def stage(
         self,
         input_directory: str,
         execs_directory: str,
+    ) -> None:
+        """
+        Stage ADCIRC simulation by adding linking executables and inputs.
+
+        Parameters
+        ----------
+        input_directory : str
+            The directory containing ADCIRC inputs.
+        execs_directory : str
+            The directory containing ADCIRC executables.
+
+        Raises
+        ------
+        RuntimeError
+            If any command fails to execute successfully.
+        """
+
+        self.logger.info("Staging ADCIRC Simulation")
+
+        self.client.exec(''.join(
+            f"ln -sf {input_directory}/* . && ",
+            f"ln -sf {execs_directory}/adcprep . &&",
+            f"ln -sf {execs_directory}/padcirc .")
+        )
+
+    def adcrprep(
+        self,
         write_processes: int,
     ) -> None:
         """
@@ -287,38 +242,78 @@ class ADCIRCSimulation(object):
         RuntimeError
             If any command fails to execute successfully.
         """
+        self.logger.info("Starting adcprep")
 
-        self.logger.info("Starting Simulation")
+        # Compute core allocation
+        cores = int(self.client.exec("echo $SLURM_TACC_CORES"))
+        pcores = cores - write_processes
 
-        try:
-            # Move inputs to current (job) directory
-            self.client.exec(f"ln -sf {input_directory}/* .")
+        # Generate the two prep files
+        self.client.exec(f'printf "{pcores}\\n1\\nfort.14\\n" | adcprep > adcprep.log')
+        self.client.exec(f'printf "{pcores}\\n2\\n" | adcprep >> adcprep.log')
 
-            # Link symbolically the executables
-            self.client.exec(f"ln -sf {execs_directory}/adcprep .")
-            self.client.exec(f"ln -sf {execs_directory}/padcirc .")
+    def run_simulation(
+        self,
+        cores: int,
+        write_processes: int,
+    ) -> None:
+        """
+        Run ADCIRC simulation using given parameters.
 
-            # Compute core allocation
-            cores = int(self.client.exec("echo $SLURM_TACC_CORES"))
-            pcores = cores - write_processes
+        Parameters
+        ----------
+        input_directory : str
+            The directory containing ADCIRC inputs.
+        execs_directory : str
+            The directory containing ADCIRC executables.
+        write_processes : int
+            Number of write processes to use.
+        remora : int
+            Whether to load remora module (1 for yes, 0 for no).
+        debug : bool, optional
+            Enable debug mode, by default True.
 
-            # Generate the two prep files
-            self.client.exec(f'printf "{pcores}\\n1\\nfort.14\\n" | adcprep')
-            self.client.exec(f'printf "{pcores}\\n2\\n" | adcprep')
+        Raises
+        ------
+        RuntimeError
+            If any command fails to execute successfully.
+        """
+        self.logger.info("Starting Simulation (padcirc)")
+        out_f = f"adcirc_{int(time.time())}.out.txt"
+        err_f = f"adcirc_{int(time.time())}.err.txt"
+        self.client.exec(
+            f"ibrun -np {cores} ./padcirc -W {write_processes} > {out_f} 2> {err_f}"
+        )
+        exit_code = self.client.exec("echo $?")
+        if int(exit_code) != 0:
+            self.logger.error("ADCIRC exited with an error status.")
+            self.client.exec("${AGAVE_JOB_CALLBACK_FAILURE}")
+            raise RuntimeError("ADCIRC exited with an error status.")
 
-            self.client.exec(
-                f"ibrun -np {cores} ./padcirc -W {write_processes} >> output.eo.txt 2>&1"
-            )
+        self.logger.info("Simulation Done")
 
-            # Check if the command was successful
-            exit_code = self.client.exec("echo $?")
-            if int(exit_code) != 0:
-                self.logger.error("ADCIRC exited with an error status.")
-                self.client.exec("${AGAVE_JOB_CALLBACK_FAILURE}")
-                raise RuntimeError("ADCIRC exited with an error status.")
+    def setup_job(self):
+        """
+        Command to set-up job directory.
 
-            self.logger.info("Simulation Done")
+        This is a skeleton method that should be over-written.
+        """
+        logger.info("Job set-up Start")
+        self.stage(
+            self.job_config["args"]['input_dir'],
+            self.job_config["args"]['exec_dir']
+        )
+        self.adcprep(self.job_config["args"]['wp'])
+        logger.info("Job set-up Done")
 
-        except Exception as e:
-            self.logger.error(f"Simulation failed: {e}")
-            raise
+    def run_job(self):
+        """
+        Job run entrypoint
+
+        This is a skeleton method that should be over-written.
+
+        Note: ibrun command should be here somewhere.
+        """
+        logger.info("Starting Simulation")
+        self.run_simulation(self.job_config["args"]["wp"])
+        logger.info("Simulation Done")
