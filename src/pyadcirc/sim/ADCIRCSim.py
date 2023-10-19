@@ -166,6 +166,13 @@ class BaseADCIRCSimulation(TACCSimulation):
             "default": "/work/06307/clos21/pub/adcirc/execs/ls6/v56_beta/",
         },
         {
+            "name": "cp",
+            "type": "argument",
+            "label": "Compute Processes",
+            "desc": "Number of processes to parallelize computation accorss.",
+            "default": 4,
+        },
+        {
             "name": "wp",
             "type": "argument",
             "label": "Write Processes",
@@ -218,10 +225,13 @@ class BaseADCIRCSimulation(TACCSimulation):
 
         logger.info("Staging ADCIRC Simulation")
 
+        input_directory = str((Path(input_directory) / '*').absolute())
+        adcprep_path = str((Path(execs_directory) / 'adcprep').absolute())
+        padcirc_path = str((Path(execs_directory) / 'padcirc').absolute())
         stage_res = self.client.exec(''.join([
-            f"ln -sf {input_directory}/* . && ",
-            f"ln -sf {execs_directory}/adcprep . &&",
-            f"ln -sf {execs_directory}/padcirc .",
+            f"ln -sf {input_directory} . && ",
+            f"ln -sf {adcprep_path} . &&",
+            f"ln -sf {padcirc_path} .",
         ]))
 
         return stage_res
@@ -254,13 +264,13 @@ class BaseADCIRCSimulation(TACCSimulation):
         logger.info("Starting adcprep")
 
         # Compute core allocation
-        cores = int(self.client.exec("echo $SLURM_TACC_CORES"))
+        cores = int(self.client.exec("echo $SLURM_TACC_CORES")['stdout'])
         pcores = cores - write_processes
 
         adcprep_res = self.client.exec(''.join([
             f'printf "{pcores}\\n1\\nfort.14\\n" | adcprep > adcprep.log && ',
             f'printf "{pcores}\\n2\\n" | adcprep >> adcprep.log',
-        ]))
+        ]), fail=False)
 
         return adcprep_res
 
@@ -324,5 +334,11 @@ class BaseADCIRCSimulation(TACCSimulation):
         Note: ibrun command should be here somewhere.
         """
         logger.info("Starting Simulation")
-        self.run_simulation(self.job_config["args"]["wp"])
+        avail = int(self.slurm_env['NTASKS']) - int(self.job_config['args']['wp'])
+        cp = self.job_config['args']['cp']
+        cp = cp if cp <= avail else avail
+        self.run_simulation(
+                cp,
+                self.job_config["args"]["wp"]
+        )
         logger.info("Simulation Done")
