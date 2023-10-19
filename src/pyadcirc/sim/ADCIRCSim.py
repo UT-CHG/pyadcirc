@@ -154,39 +154,46 @@ class BaseADCIRCSimulation(TACCSimulation):
         {
             "name": "input_dir",
             "type": "argument",
-            "label": "N",
-            "desc": "Path on compute system where input files are located.",
+            "label": "Inputs Diretory",
+            "desc": "Path to Inputs (fort.* files) for ADCIRC Simulation",
             "default": "/work/06307/clos21/pub/adcirc/inputs/ShinnecockInlet/mesh/def",
         },
         {
             "name": "exec_dir",
             "type": "argument",
-            "label": "Channels",
-            "desc": "Number of channels to use to write the array.",
+            "label": "Executables Directory",
+            "desc": "Path to Executables Directory on TACC systems",
             "default": "/work/06307/clos21/pub/adcirc/execs/ls6/v56_beta/",
         },
         {
             "name": "wp",
             "type": "argument",
-            "label": "Channels",
+            "label": "Write Processes",
             "desc": "Number of write processes to use.",
-            "defaultf": 0,
+            "default": 0,
         },
     ]
 
-    # TODO: Base environment config? for TACC simulation
-    BASE_ENV_CONFIG = {
-        "modules": ["remora"],
-        "conda_packages": "pip",
-        "pip_packages": "git+https://github.com/cdelcastillo21/taccjm.git@0.0.5-improv",
-    }
-
     ENV_CONFIG = {
-        "conda_env": "pyadcirc",
+        "conda_env": "pya-test",
         "modules": ["netcdf"],
-        "conda_packages": ["mpi4p", "h5py", "cfgrib"],
+        "conda_packages": ["mpi4py", "h5py", "cfgrib"],
         "pip_packages": ["pyadcirc"],
     }
+
+    def __init__(
+        self,
+        name: str = None,
+        system: str = None,
+        log_config: dict = None,
+    ):
+        super().__init__(
+            name=name,
+            system=system,
+            log_config=log_config,
+            script_file=__file__,
+            class_name=self.__class__.__name__,
+        )
 
     def stage(
         self,
@@ -209,15 +216,17 @@ class BaseADCIRCSimulation(TACCSimulation):
             If any command fails to execute successfully.
         """
 
-        self.logger.info("Staging ADCIRC Simulation")
+        logger.info("Staging ADCIRC Simulation")
 
-        self.client.exec(''.join(
+        stage_res = self.client.exec(''.join([
             f"ln -sf {input_directory}/* . && ",
             f"ln -sf {execs_directory}/adcprep . &&",
-            f"ln -sf {execs_directory}/padcirc .")
-        )
+            f"ln -sf {execs_directory}/padcirc .",
+        ]))
 
-    def adcrprep(
+        return stage_res
+
+    def adcprep(
         self,
         write_processes: int,
     ) -> None:
@@ -242,15 +251,18 @@ class BaseADCIRCSimulation(TACCSimulation):
         RuntimeError
             If any command fails to execute successfully.
         """
-        self.logger.info("Starting adcprep")
+        logger.info("Starting adcprep")
 
         # Compute core allocation
         cores = int(self.client.exec("echo $SLURM_TACC_CORES"))
         pcores = cores - write_processes
 
-        # Generate the two prep files
-        self.client.exec(f'printf "{pcores}\\n1\\nfort.14\\n" | adcprep > adcprep.log')
-        self.client.exec(f'printf "{pcores}\\n2\\n" | adcprep >> adcprep.log')
+        adcprep_res = self.client.exec(''.join([
+            f'printf "{pcores}\\n1\\nfort.14\\n" | adcprep > adcprep.log && ',
+            f'printf "{pcores}\\n2\\n" | adcprep >> adcprep.log',
+        ]))
+
+        return adcprep_res
 
     def run_simulation(
         self,
@@ -278,19 +290,14 @@ class BaseADCIRCSimulation(TACCSimulation):
         RuntimeError
             If any command fails to execute successfully.
         """
-        self.logger.info("Starting Simulation (padcirc)")
+        logger.info("Starting Simulation (padcirc)")
         out_f = f"adcirc_{int(time.time())}.out.txt"
         err_f = f"adcirc_{int(time.time())}.err.txt"
-        self.client.exec(
+        main_exec_cmnd = self.client.exec(
             f"ibrun -np {cores} ./padcirc -W {write_processes} > {out_f} 2> {err_f}"
         )
-        exit_code = self.client.exec("echo $?")
-        if int(exit_code) != 0:
-            self.logger.error("ADCIRC exited with an error status.")
-            self.client.exec("${AGAVE_JOB_CALLBACK_FAILURE}")
-            raise RuntimeError("ADCIRC exited with an error status.")
-
-        self.logger.info("Simulation Done")
+        logger.info(f"Main Command Done: {main_exec_cmnd}")
+        logger.info("Simulation Done")
 
     def setup_job(self):
         """
@@ -298,12 +305,14 @@ class BaseADCIRCSimulation(TACCSimulation):
 
         This is a skeleton method that should be over-written.
         """
-        logger.info("Job set-up Start")
-        self.stage(
+        logger.info(f"Job set-up Start: {self.job_config}")
+        stage_res = self.stage(
             self.job_config["args"]['input_dir'],
             self.job_config["args"]['exec_dir']
         )
-        self.adcprep(self.job_config["args"]['wp'])
+        logger.info(f'Stage command res: {stage_res}')
+        prep_res = self.adcprep(self.job_config["args"]['wp'])
+        logger.info(f'Prep command res: {prep_res}')
         logger.info("Job set-up Done")
 
     def run_job(self):
