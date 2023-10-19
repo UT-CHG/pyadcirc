@@ -3,27 +3,27 @@ FigureGen Python Wrapper
 
 Utilities for 
 """
-import os
 import linecache as lc
+import os
 import pdb
 from pathlib import Path
 from pprint import pprint
-from typing import Union, List
+from typing import List, Union
 
 import click
 import colorcet as cc
 import matplotlib as mpl
 import numpy as np
 import pandas as pd
-from pyadcirc.io.io import read_fort14_node_map
 from InquirerPy import inquirer
 from InquirerPy.base.control import Choice
 from InquirerPy.separator import Separator
 from InquirerPy.validator import EmptyInputValidator, PathValidator
 from prettytable import PrettyTable
+
+from pyadcirc.io.io import read_fort14_node_map
 from pyadcirc.viz.fg_config import FG_config
 from pyadcirc.viz.palettes import *
-
 
 # See if docker, tapis, or taccjm options are installed for use
 try:
@@ -269,20 +269,21 @@ def read_inp(input_file: str):
                     config["vectors"][FG_config[idx]["name"]] = val
                 else:
                     config[FG_config[idx]["name"]] = val
-    
-    if config['labels'][0] > 0:
+
+    if config["labels"][0] > 0:
         # Labels file should be in the sampe dir as input_file
-        labels_file = Path(input_file).parent / config['labels'][1]
-        config['labels'] = read_labels(labels_file)
+        labels_file = Path(input_file).parent / config["labels"][1]
+        config["labels"] = read_labels(labels_file)
     else:
-        config['labels'] = None
+        config["labels"] = None
 
     return config
+
 
 def read_labels(label_path: str):
     """
     Read Labels file that has the format:
-    
+
     label_name, lon, lat, position, size, color
 
     Where position contains two characters, L, C or R for left, center or right
@@ -290,10 +291,11 @@ def read_labels(label_path: str):
     First line of file should contain number of labels present in the file.
     """
     return pd.read_csv(
-        label_path, delimiter=',',
+        label_path,
+        delimiter=",",
         skiprows=1,
-        names=['name', 'lon', 'lat', 'position', 'size', 'color'])
-    
+        names=["name", "lon", "lat", "position", "size", "color"],
+    )
 
 
 def pal_from_cc(name: str):
@@ -570,17 +572,17 @@ def write_inp(config: dict, out_file: str, **kwargs: dict):
             elif val is None:
                 out_str = convert(spec["default"]).ljust(50, " ")
                 out_f.write(f"{out_str}! {name} : {desc}\n")
-            elif name == 'labels':
-                if config['labels'] is None:
+            elif name == "labels":
+                if config["labels"] is None:
                     out_str = convert(spec.default).ljust(50, " ")
-                    out_f.write(f"{out_str}! {name} : {desc}\n") 
+                    out_f.write(f"{out_str}! {name} : {desc}\n")
                 else:
-                    labels_file = Path(out_file).parent / 'Labels.txt'
-                    num_labels = len(config['labels'])
+                    labels_file = Path(out_file).parent / "Labels.txt"
+                    num_labels = len(config["labels"])
                     # Write num_labels to first line of labels_file followed by table of values
-                    with open(labels_file, 'w') as lf:
+                    with open(labels_file, "w") as lf:
                         lf.write(f"{num_labels}\n")
-                        config['labels'].to_csv(labels_file, index=False)
+                        config["labels"].to_csv(labels_file, index=False)
             else:
                 out_str = convert(val).ljust(50, " ")
                 out_f.write(f"{out_str}! {name} : {desc}\n")
@@ -867,7 +869,6 @@ def fg_run(
 
 @click.command()
 def config():
-
     config = {}
 
     # TODO: if does not end in '_' add one.

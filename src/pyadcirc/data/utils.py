@@ -207,12 +207,13 @@ key_color = "yellow"
 value_color = "blue"
 DATE_TIME = {
     "begin_date": (
-      f"[{value_color}] Use with either: [/{value_color}]" +
-      f"[bold {key_color}] end_date [/bold {key_color}]" +
-      f"[{value_color}] to express an explicit date range, or with " +
-      f"[/{value_color}][bold {key_color}] date_range [/bold {key_color}]" +
-      f"[{value_color}] to express a date range (in hours) of time starting " +
-      f"from a certain date. [/{value_color}]"),
+        f"[{value_color}] Use with either: [/{value_color}]"
+        + f"[bold {key_color}] end_date [/bold {key_color}]"
+        + f"[{value_color}] to express an explicit date range, or with "
+        + f"[/{value_color}][bold {key_color}] date_range [/bold {key_color}]"
+        + f"[{value_color}] to express a date range (in hours) of time starting "
+        + f"from a certain date. [/{value_color}]"
+    ),
     "end_date": "".join(
         [
             colored("Use with either: ", color="blue"),

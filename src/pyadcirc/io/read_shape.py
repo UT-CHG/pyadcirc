@@ -1,3 +1,9 @@
+"""
+Old file accumulating lots of functions. NEeds to be removed and each function put in appopriate location.
+
+SEe bottome. not sure where to put load and read from csv for element maps. Within mesh class itself? jsut a one line call, centroid and geoemetry are necessary?
+
+"""
 import heapq
 import os
 import pdb
@@ -17,10 +23,11 @@ import numpy as np
 import pandas as pd
 from alive_progress import alive_bar
 from geopandas import GeoDataFrame
-from pyadcirc.io.io import read_fort14_element_map, read_fort14_node_map
 from rich.traceback import install
 from shapely.geometry import LineString, Point, Polygon
 from shapely.wkt import loads
+
+from pyadcirc.io.io import read_fort14_element_map, read_fort14_node_map
 
 install(show_locals=True)
 
@@ -48,10 +55,7 @@ def plot_folium_map(
         gdf = gdf_or_path
 
     # Project the data to the specified CRS for accurate centroid calculation
-    if gdf.crs is None:
-        gdf.crs = f"EPSG:{crs_epsg}"
-    else:
-        gdf = gdf.to_crs(epsg=crs_epsg)
+    gdf = set_crs_for_gdf(gdf, crs_epg)
 
     # Calculate the center of the map
     center = gdf.unary_union.centroid
@@ -221,7 +225,7 @@ def process_shapefiles(
             gdf.attrs = read_xml_metadata(path)
 
     # Ensure the original GeoDataFrame has a geographic (latitude/longitude) CRS
-    gdf = gdf.to_crs(epsg=crs_epsg)
+    gdf = set_crs_for_gdf(gdf, crs_epsg)
 
     # Plot with GeoPandas
     if plot:
@@ -473,7 +477,7 @@ def calculate_bbox(
         gdf = gpd.read_file(dir)
 
     # Ensure the GeoDataFrame has a geographic (latitude/longitude) CRS
-    gdf = gdf.to_crs(epsg=4326)
+    gdf = set_crs_for_gdf(gdf, 4326)
 
     # Calculate the bounding box
     minx, miny, maxx, maxy = gdf.total_bounds
@@ -919,7 +923,6 @@ def approximate_shapefile_boundary(
     )
 
     # Initialize the resulting path and score
-    result_path = []
     total_score = 0
 
     # Define the number of segments for the progress bar
@@ -930,6 +933,9 @@ def approximate_shapefile_boundary(
         approx_paths = []
         true_paths = []
         scores = []
+        # TODO: If can't find segment in consecutive, skip and try between start and end of next segment
+        # and keep going -> For when the lien to snap is sampled at a higher rate than mesh resolution
+        # TODO: Compute segment length in relation to mesh resolution?
         for start, end in zip(coords[:-1], coords[1:]):
             bar.text(f"Going from {start} to {end}")
             # Approximate the line segment using the selected search algorithm
@@ -1048,6 +1054,7 @@ def split_linestring_by_height(df: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         # For each unique Z value, create a LINESTRING and store in result
         for z, xy_coords in groups.items():
             linestring = LineString(xy_coords)
+            z = np.abs(z)
             result.append({"geometry": linestring, "height": z})
 
     result = gpd.GeoDataFrame(result, columns=["geometry", "height"])
@@ -1211,7 +1218,7 @@ def create_nc_file(
     Three_dim = rootgrp.createDimension("Three", 3)
 
     # 2. Mesh topology variable
-    Mesh2 = rootgrp.createVariable("Mesh2", "i4")
+    Mesh2 = rootgrp.createVariable("Mesh", "i4")
     Mesh2.cf_role = "mesh_topology"
     Mesh2.topology_dimension = 2
     Mesh2.node_coordinates = "Mesh2_node_x Mesh2_node_y"
@@ -1320,3 +1327,141 @@ def save_geodataframe_with_metadata(
 
     print(f"GeoDataFrame and metadata saved in {full_path}")
 
+
+def set_crs_for_gdf(gdf: GeoDataFrame, crs_epsg: int) -> GeoDataFrame:
+    """
+    Set or convert the CRS (Coordinate Reference System) for a given GeoDataFrame.
+
+    Parameters
+    ----------
+    gdf : GeoDataFrame
+        The GeoDataFrame whose CRS needs to be set or converted.
+    crs_epsg : int
+        The EPSG code for the desired CRS.
+
+    Returns
+    -------
+    GeoDataFrame
+        The GeoDataFrame with the CRS set or converted to the specified EPSG code.
+    """
+    # Project the data to the specified CRS for accurate centroid calculation
+    if gdf.crs is None:
+        gdf.crs = f"EPSG:{crs_epsg}"
+    else:
+        gdf = gdf.to_crs(epsg=crs_epsg)
+
+    return gdf
+
+
+def read_and_convert_to_line(shapefile_path: str, crs_epsg: int = None) -> GeoDataFrame:
+    """
+    Read a shapefile and convert all geometries to lines, removing Z-coordinates if present.
+
+    Parameters
+    ----------
+    shapefile_path : str
+        The file path to the shapefile.
+    crs_epsg : int, optional
+        The EPSG code for the desired CRS (Coordinate Reference System).
+        If None, the CRS will not be changed.
+
+    Returns
+    -------
+    GeoDataFrame
+        The GeoDataFrame containing only LineString geometries without Z-coordinates.
+
+    Notes
+    -----
+    This function assumes that the shapefile contains 'Polygon Z', 'LineString Z',
+    'Polygon', or 'LineString' geometries. It will convert all 'Polygon Z' and
+    'LineString Z' geometries to 'LineString' by taking their exterior coordinates
+    and removing Z-coordinates.
+    """
+    # Read the shapefile into a GeoDataFrame
+    gdf = process_shapefiles(shapefile_path, crs_epsg=crs_epsg, plot=False)
+
+    # Optionally, set or convert CRS
+    if crs_epsg is not None:
+        if gdf.crs is None:
+            gdf.crs = f"EPSG:{crs_epsg}"
+        else:
+            gdf = gdf.to_crs(epsg=crs_epsg)
+
+    # Convert all geometries to LineString and remove Z-coordinates
+    new_geometries = []
+    for geom in gdf["geometry"]:
+        if geom.geom_type == "Polygon":
+            new_geometries.append(LineString(geom.exterior.coords))
+        elif geom.geom_type == "LineString":
+            if geom.has_z:
+                new_geometries.append(LineString([(x, y) for x, y, z in geom.coords]))
+            else:
+                new_geometries.append(geom)
+        else:
+            raise ValueError(f"Unknown geometry {geom.geom_type} found.")
+
+    gdf["geometry"] = new_geometries
+    gdf = split_linestring_by_height(gdf)
+
+    return gdf
+
+
+def read_and_convert_to_polygon(
+    shapefile_path: str, crs_epsg: int = None
+) -> GeoDataFrame:
+    """
+    Read a shapefile and convert all Z-Polygons to regular Polygons,
+    setting their height to the average of the Z values.
+
+    Parameters
+    ----------
+    shapefile_path : str
+        The file path to the shapefile.
+    crs_epsg : int, optional
+        The EPSG code for the desired CRS (Coordinate Reference System).
+        If None, the CRS will not be changed.
+
+    Returns
+    -------
+    GeoDataFrame
+        The GeoDataFrame containing only Polygon geometries without Z-coordinates
+        and a new column 'avg_height' for the average height of Z-Polygons.
+
+    Notes
+    -----
+    This function assumes that the shapefile contains 'Polygon Z', 'Polygon', or
+    'LineString' geometries. It will convert all 'Polygon Z' geometries to 'Polygon'
+    by taking their exterior coordinates and removing Z-coordinates.
+    """
+    # Read the shapefile into a GeoDataFrame
+    gdf = process_shapefiles(shapefile_path, crs_epsg=crs_epsg, plot=False)
+
+    # Prepare lists to store new geometries and their average heights
+    new_geometries = []
+    avg_heights = []
+
+    for geom in gdf["geometry"]:
+        if geom.geom_type == "Polygon":
+            if geom.has_z:
+                coords = np.array(geom.exterior.coords)
+                avg_z = np.mean(coords[:, 2])
+                new_geom = Polygon(coords[:, :2])
+                new_geometries.append(new_geom)
+                avg_heights.append(avg_z)
+            else:
+                new_geometries.append(geom)
+                avg_heights.append(None)
+        elif geom.geom_type == "LineString":
+            new_geometries.append(geom)
+            avg_heights.append(None)
+        else:
+            new_geometries.append(None)  # Unknown geometry type
+            avg_heights.append(None)
+
+    gdf["geometry"] = new_geometries
+    gdf["height"] = avg_heights
+
+    return gdf
+
+
+#### NOT SURE WHERE TO PUT THESE:

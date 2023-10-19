@@ -1,17 +1,17 @@
 """
 
 """
-import pdb
 import json
+import pdb
 from io import StringIO
-from taccjm import taccjm as tjm
 from pathlib import Path
+
 import pandas as pd
 import pyslurmtq.SLURMTaskQueue as stq
 from pyslurmtq.utils import filter_res
+from taccjm import taccjm as tjm
 
 from pyadcirc.data import ncar
-
 
 TACC_SYSTEMS = {
     "ls6": {"queue": "normal", "queue_test": "development"},
@@ -56,7 +56,6 @@ class ADCIRCDB(object):
     """
 
     def __init__(self, jm_id, globus_client_id=None):
-
         if jm_id not in [j["jm_id"] for j in tjm.list_jms()]:
             err = "TACCJM {jm_id} does not exist. Initialize with `init_system`"
             raise ValueError(err)
@@ -176,7 +175,6 @@ class ADCIRCSim(object):
         input_dir,
         execs_dir,
     ):
-
         self._jm = tjm.get_jm("jm_id")
         self.job_config = None
 

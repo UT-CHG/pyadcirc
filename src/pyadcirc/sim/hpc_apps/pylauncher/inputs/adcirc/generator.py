@@ -1,10 +1,11 @@
 import argparse
-import time
 import json
+import time
 from pathlib import Path
 from typing import List
-from pathlib import Path
+
 import numpy as np
+
 from pyadcirc import io as pyio
 
 
@@ -147,7 +148,6 @@ def generator(
 
 
 if __name__ == "__main__":
-
     # Parse command line options
     parser = argparse.ArgumentParser()
     parser.add_argument("iter", type=int)
@@ -167,7 +167,6 @@ if __name__ == "__main__":
     # TODO: On future iterations check for failed jobs and re-run
     # Or run image processing/post-processing on future runs after jobs complete.
     if args.iter <= args.max_iters:
-
         if args.cores_per_job > args.np:
             args.cores_per_job = args.np
 

@@ -60,10 +60,12 @@ def pyplot_mesh(
         "width": 0.003,
     },
     quiver_key_args: dict = {
-        'X': 0.85, 'Y': 0.85, 'U': 10,
-        'label': '10 m/s',
-        'labelpos': 'N',
-        'fontproperties': {'size': 16},
+        "X": 0.85,
+        "Y": 0.85,
+        "U": 10,
+        "label": "10 m/s",
+        "labelpos": "N",
+        "fontproperties": {"size": 16},
     },
     cmap: str = "viridis",
     colorbar_opts: dict = {
@@ -95,7 +97,7 @@ def pyplot_mesh(
         if vec_data is not None:
             vec_data = vec_data.sel({time_var: time}, method="nearest")
     else:
-        if 'time' in d.coords:
+        if "time" in d.coords:
             d = d.isel({time_var: timestep})
             if vec_data is not None:
                 vec_data = vec_data.isel({time_var: timestep})
@@ -186,7 +188,7 @@ def pyplot_mesh(
     p.colorbar.ax.tick_params(labelsize=12)
 
     title = f"{var}" if title is None else title
-    if 'time' in d.coords:
+    if "time" in d.coords:
         title = f"{title} at {pd.to_datetime(d['time'].item(0))}"
     ax.set_title(title, **title_style)
 
@@ -197,16 +199,17 @@ def pyplot_mesh(
 
 
 if __name__ == "__main__":
-    import pyadcirc.io.io as pyio
-    from cartopy import crs
     import matplotlib.pyplot as plt
+    from cartopy import crs
 
-    start_date = '1993-01-07 01:36:00'
-    end_date = '1993-01-13 18:18:00'
-    root_path = Path('/Users/carlos/repos/pyADCIRC/notebooks/')
-    wind_data = xr.open_dataset(str(root_path / 'data/fort.222.nc')) 
-    wind_data['speed'] = np.sqrt(wind_data['u10']**2 + wind_data['v10']**2)
-    wind_data['speed'].attrs['units'] = 'm/s'
+    import pyadcirc.io.io as pyio
+
+    start_date = "1993-01-07 01:36:00"
+    end_date = "1993-01-13 18:18:00"
+    root_path = Path("/Users/carlos/repos/pyADCIRC/notebooks/")
+    wind_data = xr.open_dataset(str(root_path / "data/fort.222.nc"))
+    wind_data["speed"] = np.sqrt(wind_data["u10"] ** 2 + wind_data["v10"] ** 2)
+    wind_data["speed"].attrs["units"] = "m/s"
     plt.figure(figsize=(12, 8))
     res = pyplot_mesh(
         wind_data,
@@ -218,8 +221,11 @@ if __name__ == "__main__":
         num_vecs=20,
         save_path="test.png",
         quiver_key_args={
-        'X': 0.87, 'Y': 0.75, 'U': 10,
-        'label': '10 m/s',
-        'labelpos': 'N',
-        'fontproperties': {'size': 16},
-        })
+            "X": 0.87,
+            "Y": 0.75,
+            "U": 10,
+            "label": "10 m/s",
+            "labelpos": "N",
+            "fontproperties": {"size": 16},
+        },
+    )

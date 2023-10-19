@@ -6,7 +6,10 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+import rich_click as click
 from pandas.errors import EmptyDataError
+from rich.console import Console
+from rich_click.cli import patch
 from termcolor import colored
 
 from pyadcirc.data import noaa
@@ -14,18 +17,13 @@ from pyadcirc.data.utils import (get_banner_text, get_help_text,
                                  make_pretty_table)
 from pyadcirc.viz import asciichart as ac
 
-from rich.console import Console
-
-import rich_click as click
-from rich_click.cli import patch
-
 click.rich_click.USE_RICH_MARKUP = True
 
 
 patch()
 console = Console()
 
-url = 'https://api.tidesandcurrents.noaa.gov/api/prod/'
+url = "https://api.tidesandcurrents.noaa.gov/api/prod/"
 
 
 def _get_header():
@@ -33,7 +31,7 @@ def _get_header():
     Print heading
     """
     print(get_banner_text(title="NOAA API"))
-    console.print(f'Python wrapper around: {url}\n\n')
+    console.print(f"Python wrapper around: {url}\n\n")
 
 
 def _save_output(data, output_file, output_format):
@@ -100,7 +98,7 @@ def info():
     "-p",
     default="metadata",
     type=click.Choice(list(noaa.PRODUCTS.keys())),
-    help="See 'noaa_data info' for more info on products avialable", # get_help_text(noaa.PRODUCTS),
+    help="See 'noaa_data info' for more info on products avialable",  # get_help_text(noaa.PRODUCTS),
 )
 @click.option(
     "--begin_date",

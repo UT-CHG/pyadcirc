@@ -6,8 +6,8 @@ pyadcirc sim - CLI for ADCRIC simulations
 import argparse
 import logging
 
-from pyadcirc.io import merge_output
 from pyadcirc import __version__
+from pyadcirc.io import merge_output
 
 __author__ = "Carlos del-Castillo-Negrete"
 __copyright__ = "Carlos del-Castillo-Negrete"

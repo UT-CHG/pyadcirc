@@ -1,7 +1,6 @@
 import six
 from pyfiglet import figlet_format
 
-
 try:
     from termcolor import colored
 except ImportError:

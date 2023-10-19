@@ -6,6 +6,7 @@ Vizualization utility functions
 """
 from pathlib import Path
 from typing import AnyStr, Callable, List, Tuple, Union
+
 import imageio as iio
 import numpy as np
 from pygifsicle import optimize

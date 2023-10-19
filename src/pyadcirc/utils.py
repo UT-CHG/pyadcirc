@@ -4,28 +4,34 @@ utils - Utility functions to use throughout ADCIRC suite.
 """
 
 import argparse
+import glob
+import io
+import json
+import linecache as lc
 import logging
-import sys
-
-from pyadcirc import __version__
-
-import re
 import os
 import pdb
-import glob
 import pprint
-import json
-from pathlib import Path
-import logging
+import re
 import subprocess
-import numpy as np
-import xarray as xr
-import linecache as lc
+import sys
 import urllib.request
-from functools import reduce
-from geopy.distance import distance
-from time import perf_counter, sleep
 from contextlib import contextmanager
+from functools import reduce
+from pathlib import Path
+from time import perf_counter, sleep
+from typing import Callable, List, Optional, Union
+
+import numpy as np
+import pandas as pd
+import polars as pl
+import xarray as xr
+from geopy.distance import distance
+from rich.console import Console
+from rich.table import Table
+from termcolor import colored
+
+from pyadcirc import __version__
 
 __author__ = "Carlos del-Castillo-Negrete"
 __copyright__ = "Carlos del-Castillo-Negrete"
@@ -45,7 +51,7 @@ with open(
 @contextmanager
 def timing(label: str):
     t0 = perf_counter()
-    yield lambda: (label, t1 - t0)
+    yield lambda: (label, perf_counter() - t0)
     t1 = perf_counter()
 
 
@@ -189,3 +195,107 @@ def check_file_status(filepath, filesize):
     sys.stdout.write("%.3f %s" % (percent_complete, "% Completed"))
     sys.stdout.flush()
 
+
+def make_rich_table(
+    data: Union[pd.DataFrame, pl.DataFrame, dict],
+    fields: List[str] = None,
+    title: Optional[str] = None,
+    search: Optional[str] = None,
+    match: str = r".",
+    filter_fun: Optional[Callable[[pd.Series], pd.Series]] = None,
+    formats: Optional[List[dict]] = None,
+    to_str: bool = True,
+) -> str:
+    """
+    Makes a table using the rich library.
+
+    Parameters
+    ----------
+    data : Union[pd.DataFrame, pl.DataFrame, dict]
+        DataFrame containing response data.
+    fields : List[str]
+        List of strings containing names of fields to extract for each element.
+    title : Optional[str], default=None
+        Title for the table.
+    search : Optional[str], default=None
+        String containing column to perform string pattern matching on to filter results.
+    match : str, default='.'
+        Regular expression to match strings in the search column.
+    filter_fun : Optional[Callable[[pd.Series], pd.Series]], default=None
+        Function to filter each row in the DataFrame.
+    formats : Optional[List[dict]], default=None
+        List of dictionaries containing formatting options for each column. Must be the same length as fields.
+    to_str : bool, default = True
+        Whether to return the table as a string or print it.
+
+    Returns
+    -------
+    str
+        String representation of the rich table.
+    """
+    # Initialize console and table
+    console = Console()
+    table = Table(show_header=True, header_style="bold blue")
+
+    # Handle dict input
+    if isinstance(data, dict):
+        df = pd.DataFrame([data])
+    else:
+        df = data
+
+    if fields is None:
+        # Only take first 10
+        fields = list(df.columns)[:10]
+
+    # Handle title
+    if title is not None:
+        if title in df:
+            unique_vals = df[title].unique()
+            title_text = ", ".join(map(str, unique_vals))[:30]
+            if len(title_text) >= 30:
+                title_text += "..."
+            df = df.drop(columns=[title])
+            if title in fields:
+                fields.remove(title)
+        else:
+            title_text = title[:30]
+        table.title = title_text
+
+    # Validate formats
+    if formats is None:
+        formats = len(fields) * [{"style": "blue"}]
+    elif len(formats) != len(fields):
+        raise ValueError("Formats must be the same length as fields")
+
+    # Add columns to table with formatting options
+    for i, field in enumerate(fields):
+        table.add_column(field, **formats[i])
+
+    # Build table from DataFrame
+    for _, r in df.dropna().iterrows():
+        if filter_fun is not None:
+            r = filter_fun(r)
+
+        if search is not None:
+            if re.search(match, r[search]) is not None:
+                table.add_row(*[str(r[f]) for f in fields])
+        else:
+            table.add_row(*[str(r[f]) for f in fields])
+
+    if to_str:
+        # Create a console object that writes to a string
+        console = Console(file=io.StringIO(), force_terminal=True)
+
+        # Capture the table as a string
+        console.print(table)
+        table_str = console.file.getvalue()
+
+        return table_str
+
+    return table
+
+
+# Example usage
+# formats = [{"style": "bold red"}, {"style": "italic green"}]
+# result = make_rich_table(df, fields=["column1", "column2"], title="My Table", formats=formats)
+# print(result)

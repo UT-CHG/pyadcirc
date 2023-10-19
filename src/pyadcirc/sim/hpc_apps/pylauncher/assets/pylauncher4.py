@@ -201,7 +201,6 @@ class SLURMTask:
         cdir: str = None,
         workdir: str = None,
     ):
-
         self.task_id = task_id
         self.command = cmnd
         self.cores = int(cores)
@@ -389,7 +388,6 @@ class SLURMTaskQueue:
         max_runtime: float = 1e10,
         delay: float = 1,
     ):
-
         # Node list - Initialize from SLURM environment
         self.task_slots = []
         self._init_task_slots()

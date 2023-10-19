@@ -31,8 +31,9 @@ import globus_sdk
 import pandas as pd
 import requests
 from prettytable import PrettyTable
-from pyadcirc.utils import sizeof_fmt, check_file_status
+
 from pyadcirc.io.io import cfsv2_grib_to_adcirc_owi
+from pyadcirc.utils import check_file_status, sizeof_fmt
 
 
 class NCARGlobusDataTransfer(object):
@@ -47,10 +48,10 @@ class NCARGlobusDataTransfer(object):
 
         # Initialize client and authorizer
         self.client, self.authorizer = self._init_globus_client(
-            client_id, self.TOKEN_PATH)
+            client_id, self.TOKEN_PATH
+        )
 
-        self.transfer_client = globus_sdk.TransferClient(
-            authorizer=self.authorizer)
+        self.transfer_client = globus_sdk.TransferClient(authorizer=self.authorizer)
 
         self.transfer_data = None
 
@@ -149,8 +150,7 @@ class NCARGlobusDataTransfer(object):
         f_info = []
         for year in years_unique:
             folder = f"/{ds_id}/{year}"
-            files = self.transfer_client.operation_ls(
-                self.NCAR_ENDPOINT, path=folder)
+            files = self.transfer_client.operation_ls(self.NCAR_ENDPOINT, path=folder)
 
             for idx, m in enumerate(months):
                 if years[idx] == year:
@@ -284,12 +284,10 @@ class NCARDownloader:
                 self._download_one(f, cookies=ret.cookies)
 
         return {
-            v: [os.path.basename(url) for url in urls]
-            for v, urls in fnames.items()
+            v: [os.path.basename(url) for url in urls] for v, urls in fnames.items()
         }
 
-    def get_adcirc_forcing(self, start_date, end_date,
-                           bounding_box=None, outdir=None):
+    def get_adcirc_forcing(self, start_date, end_date, bounding_box=None, outdir=None):
         # The NCAR wind data is actually translated one hour ahead
         # Only forecasts are downloaded, NOT the analysis
         # So we need to pad the download range by a day :/
@@ -306,9 +304,11 @@ class NCARDownloader:
         variables = ["wnd10m"] + ["prmsl", "icecon"]
         windgrid = []
         for var in variables:
-            ncar_vars_to_adcirc = {"prmsl": "fort.221",
-                                   "wnd10m": "fort.222",
-                                   "icecon": "fort.225"}
+            ncar_vars_to_adcirc = {
+                "prmsl": "fort.221",
+                "wnd10m": "fort.222",
+                "icecon": "fort.225",
+            }
 
             outfile = ncar_vars_to_adcirc[var]
             if outdir is not None:
@@ -334,8 +334,7 @@ class NCARDownloader:
         if os.path.exists(file_base) and not overwrite:
             return
         print("Downloading", file_base)
-        req = requests.get(url, cookies=cookies,
-                           allow_redirects=True, stream=True)
+        req = requests.get(url, cookies=cookies, allow_redirects=True, stream=True)
         filesize = int(req.headers["Content-length"])
         with open(file_base, "wb") as outfile:
             chunk_size = 1048576

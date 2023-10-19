@@ -1,9 +1,9 @@
+import pdb
+import sys
 import time
+
 import asciichartpy
 import numpy as np
-import sys
-
-import pdb
 
 
 def text_line_plot(
@@ -72,7 +72,7 @@ def text_line_plot(
         # sys.stdout.flush()
         time.sleep(0.05)
 
-    res = 'N'
+    res = "N"
     if hold_end:
         if prompt is None:
             _ = input("\n============ Press <Enter> to continue ============\n")
