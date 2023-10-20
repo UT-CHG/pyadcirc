@@ -1,5 +1,6 @@
 # from mpi4py import MPI
 # import h5py
+import json
 import time
 
 from pathlib import Path
@@ -202,6 +203,21 @@ class BaseADCIRCSimulation(TACCSimulation):
             class_name=self.__class__.__name__,
         )
 
+    @property
+    def num_compute_tasks(self):
+        """
+        """
+        # TODO: Implement
+        return None
+
+    @property
+    def num_write_tasks(self):
+        """
+        """
+        # TODO: Implement
+        return None
+
+
     def stage(
         self,
         input_directory: str,
@@ -267,12 +283,16 @@ class BaseADCIRCSimulation(TACCSimulation):
         cores = int(self.client.exec("echo $SLURM_TACC_CORES")['stdout'])
         pcores = cores - write_processes
 
-        adcprep_res = self.client.exec(''.join([
-            f'printf "{pcores}\\n1\\nfort.14\\n" | adcprep > adcprep.log && ',
+        adcprep_res_1 = self.client.exec(
+            f'printf "{pcores}\\n1\\nfort.14\\n" | adcprep > adcprep.log',
+            fail=False)
+        logger.info(f'ADCPREP 1 res: {adcprep_res_1}')
+        adcprep_res_2 = self.client.exec(
             f'printf "{pcores}\\n2\\n" | adcprep >> adcprep.log',
-        ]), fail=False)
+            fail=False)
+        logger.info(f'ADCPREP 1 res: {adcprep_res_2}')
 
-        return adcprep_res
+        return (adcprep_res_1, adcprep_res_2)
 
     def run_simulation(
         self,
@@ -321,8 +341,7 @@ class BaseADCIRCSimulation(TACCSimulation):
             self.job_config["args"]['exec_dir']
         )
         logger.info(f'Stage command res: {stage_res}')
-        prep_res = self.adcprep(self.job_config["args"]['wp'])
-        logger.info(f'Prep command res: {prep_res}')
+        _ = self.adcprep(self.job_config["args"]['wp'])
         logger.info("Job set-up Done")
 
     def run_job(self):
@@ -333,12 +352,40 @@ class BaseADCIRCSimulation(TACCSimulation):
 
         Note: ibrun command should be here somewhere.
         """
-        logger.info("Starting Simulation")
-        avail = int(self.slurm_env['NTASKS']) - int(self.job_config['args']['wp'])
+        logger.info(f"Starting Simulation: {self.job_config}")
+        wp = int(self.job_config['args']['wp'])
+        max_cp = int(self.slurm_env['NTASKS']) - wp
         cp = self.job_config['args']['cp']
-        cp = cp if cp <= avail else avail
-        self.run_simulation(
-                cp,
-                self.job_config["args"]["wp"]
+        cp = cp if cp <= max_cp else max_cp
+
+        logger.info("Staging ADCIRC inputs")
+        input_directory = str((Path(
+            self.job_config['args']['input_dir']) / '*').absolute())
+        adcprep_path = str((Path(
+            self.job_config['args']['exec_dir']) / 'adcprep').absolute())
+        padcirc_path = str((Path(
+            self.job_config['args']['exec_dir']) / 'padcirc').absolute())
+        stage_res = self.client.exec(''.join([
+            f"ln -sf {input_directory} . && ",
+            f"ln -sf {adcprep_path} . &&",
+            f"ln -sf {padcirc_path} .",
+        ]))
+        logger.info(f"Staging done: {stage_res}")
+
+        logger.info("ADCPREP Start")
+        adcprep_res_1 = self.client.exec(
+            f'printf "{cp}\\n1\\nfort.14\\n" | adcprep > adcprep.log',
+            fail=False)
+        logger.info(f'ADCPREP 1 res: {adcprep_res_1}')
+        adcprep_res_2 = self.client.exec(
+            f'printf "{cp}\\n2\\n" | adcprep >> adcprep.log',
+            fail=False)
+        logger.info(f'ADCPREP 2 res: {adcprep_res_2}')
+
+        logger.info("Starting Simulation (padcirc)")
+        out_f = f"adcirc_{int(time.time())}.out.txt"
+        err_f = f"adcirc_{int(time.time())}.err.txt"
+        main_exec_cmnd = self.client.exec(
+            f"ibrun -np {cp} ./padcirc -W {wp} > {out_f} 2> {err_f}"
         )
-        logger.info("Simulation Done")
+        logger.info(f"Simulation Done {main_exec_cmnd}")
