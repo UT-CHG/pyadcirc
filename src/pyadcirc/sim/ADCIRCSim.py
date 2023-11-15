@@ -180,6 +180,13 @@ class BaseADCIRCSimulation(TACCSimulation):
             "desc": "Number of write processes to use.",
             "default": 0,
         },
+        {
+            "name": "swan",
+            "type": "argument",
+            "label": "SWAN coupling",
+            "desc": "Flag indicating whether to couple to SWAN",
+            "default": False
+        }
     ]
 
     ENV_CONFIG = {
@@ -240,10 +247,10 @@ class BaseADCIRCSimulation(TACCSimulation):
         """
 
         logger.info("Staging ADCIRC Simulation")
-
+        exec_name = self._get_exec_name()
         input_directory = str((Path(input_directory) / '*').absolute())
         adcprep_path = str((Path(execs_directory) / 'adcprep').absolute())
-        padcirc_path = str((Path(execs_directory) / 'padcirc').absolute())
+        padcirc_path = str((Path(execs_directory) / exec_name).absolute())
         stage_res = self.client.exec(''.join([
             f"ln -sf {input_directory} . && ",
             f"ln -sf {adcprep_path} . &&",
@@ -329,6 +336,10 @@ class BaseADCIRCSimulation(TACCSimulation):
         logger.info(f"Main Command Done: {main_exec_cmnd}")
         logger.info("Simulation Done")
 
+    def _get_exec_name(self):
+        swan = self.job_config['args'].get('swan', False)
+        return 'padcswan' if swan else 'padcirc'
+
     def setup_job(self):
         """
         Command to set-up job directory.
@@ -359,12 +370,13 @@ class BaseADCIRCSimulation(TACCSimulation):
         cp = cp if cp <= max_cp else max_cp
 
         logger.info("Staging ADCIRC inputs")
+        exec_name = self._get_exec_name() 
         input_directory = str((Path(
             self.job_config['args']['input_dir']) / '*').absolute())
         adcprep_path = str((Path(
             self.job_config['args']['exec_dir']) / 'adcprep').absolute())
         padcirc_path = str((Path(
-            self.job_config['args']['exec_dir']) / 'padcirc').absolute())
+            self.job_config['args']['exec_dir']) / exec_name).absolute())
         stage_res = self.client.exec(''.join([
             f"ln -sf {input_directory} . && ",
             f"ln -sf {adcprep_path} . &&",
@@ -382,10 +394,10 @@ class BaseADCIRCSimulation(TACCSimulation):
             fail=False)
         logger.info(f'ADCPREP 2 res: {adcprep_res_2}')
 
-        logger.info("Starting Simulation (padcirc)")
+        logger.info(f"Starting Simulation ({exec_name})")
         out_f = f"adcirc_{int(time.time())}.out.txt"
         err_f = f"adcirc_{int(time.time())}.err.txt"
         main_exec_cmnd = self.client.exec(
-            f"ibrun -np {cp} ./padcirc -W {wp} > {out_f} 2> {err_f}"
+            f"ibrun -np {cp} ./{exec_name} -W {wp} > {out_f} 2> {err_f}"
         )
         logger.info(f"Simulation Done {main_exec_cmnd}")
